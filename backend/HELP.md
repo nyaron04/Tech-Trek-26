@@ -1,4 +1,5 @@
 # Getting Started
+Run server using ```mvn exec:java```
 
 ### Reference Documentation
 For further reference, please consider the following sections:
