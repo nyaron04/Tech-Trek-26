@@ -4,21 +4,12 @@ import Task from './components/Task'
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <Task/>
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
+    <div>
+      <head> 
+        <title>STUDYLYNK</title>
+      </head>
+      <header>
+          <h1>Master your studies with data-driven control </h1>
       </header>
     </div>
   );
