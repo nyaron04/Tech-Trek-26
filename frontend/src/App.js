@@ -1,18 +1,8 @@
-import logo from './logo.svg';
-import './App.css';
-import Task from './components/Task'
+
+import Landing from './landing_page/landing';
 
 function App() {
-  return (
-    <div>
-      <head> 
-        <title>STUDYLYNK</title>
-      </head>
-      <header>
-          <h1>Master your studies with data-driven control </h1>
-      </header>
-    </div>
-  );
+  return <Landing />;
 }
 
-export default App;
+export default App
