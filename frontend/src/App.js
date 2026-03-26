@@ -5,4 +5,4 @@ function App() {
   return <Landing />;
 }
 
-export default App;
+export default App
