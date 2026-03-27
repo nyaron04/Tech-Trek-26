@@ -1,36 +1,58 @@
+import './Dashboard.css';
+
 function Dashboard() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      
-      {/* Top Bar */}
-      <div style={{ background: '#f0f0f0', padding: '10px', display: 'flex', justifyContent: 'space-between' }}>
-        <input placeholder="What Are You Working On Today?" style={{ width: '50%' }} />
-        <button>Category Tag</button>
-        <span>0:00:00</span>
+    <div className="dashboard">
+      <div className="topbar">
+        <button className="profile-btn">Profile</button>
+        <input className="task-input" placeholder="What Are You Working On Today?" />
+        <button className="category-tag">● Category Tag</button>
+        <button className="play-btn">▶</button>
+        <span className="timer">0:00:00</span>
       </div>
-
-      {/* Main Content */}
-      <div style={{ display: 'flex', flex: 1 }}>
-
-        {/* Left Sidebar */}
-        <div style={{ width: '150px', background: '#e0e0e0', padding: '10px' }}>
-          <h3>Profile</h3>
-          <h4>Time Spent</h4>
-          <p>Category hr:min:sec</p>
-          <h4>AI Chatbox</h4>
+      <div className="main">
+        <div className="left-sidebar">
+          <div className="time-spent">
+            <h4>Time Spent</h4>
+            <div className="time-row">Category <span>hr:min:sec</span></div>
+            <div className="time-row">Category <span>hr:min:sec</span></div>
+            <div className="time-row">Category <span>hr:min:sec</span></div>
+            <div className="time-row">Category <span>hr:min:sec</span></div>
+          </div>
+          <div className="ai-chatbox">
+            <h4>AI Chatbox</h4>
+            <div className="chat-input-row">
+              <input placeholder="Write Something" />
+              <button>↑</button>
+            </div>
+          </div>
         </div>
-
-        {/* Calendar */}
-        <div style={{ flex: 1, background: '#fff', padding: '10px' }}>
+        <div className="calendar">
           <h3>Calendar goes here</h3>
         </div>
-
-        {/* Right Sidebar */}
-        <div style={{ width: '150px', background: '#e0e0e0', padding: '10px' }}>
-          <h3>Categories</h3>
-          <p>+ Add Category</p>
+        <div className="right-sidebar">
+          <div className="category-item">
+            <span>category</span><button>›</button>
+          </div>
+          <div className="category-item">
+            <span>category</span><button>∨</button>
+            <div className="task-list">
+              <div className="task">Task</div>
+              <div className="task">Task</div>
+              <div className="task">Task</div>
+              <div className="task">Task</div>
+              <div className="task">Task</div>
+              <button className="add-task">+ Add Task</button>
+            </div>
+          </div>
+          <div className="category-item">
+            <span>category</span><button>›</button>
+          </div>
+          <div className="category-item">
+            <span>category</span><button>›</button>
+          </div>
+          <button className="add-category">+ Add Category</button>
         </div>
-
       </div>
     </div>
   );
