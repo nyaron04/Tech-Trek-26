@@ -1,8 +1,7 @@
-
-import Landing from './landing_page/landing';
+import Dashboard from './pages/Dashboard';
 
 function App() {
-  return <Landing />;
+  return <Dashboard />;
 }
 
-export default App
+export default App;
