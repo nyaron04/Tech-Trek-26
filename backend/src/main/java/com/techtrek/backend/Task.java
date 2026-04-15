@@ -6,6 +6,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 @Entity
 @Table(name = "tasks")
@@ -14,12 +16,24 @@ public class Task {
     @Id
     private UUID id;
 
+    @NotBlank(message = "Title cannot be empty")
     private String title;
+
     private String description;
+
+    @NotBlank(message = "Status cannot be empty")
     private String status;
 
     @Column(name = "category_id")
+    @NotNull(message = "Category ID is required")
     private UUID categoryId;
+
+    @Column(name = "user_id")
+    @NotNull(message = "User ID is required")
+    private UUID userId;
+
+    @NotBlank(message = "Type cannot be empty")
+    private String type;
 
     public Task() {}
 
@@ -43,6 +57,14 @@ public class Task {
         return categoryId;
     }
 
+    public UUID getUserId() {
+        return userId;
+    }
+
+    public String getType() {
+        return type;
+    }
+
     public void setId(UUID id) {
         this.id = id;
     }
@@ -63,25 +85,11 @@ public class Task {
         this.categoryId = categoryId;
     }
 
-    @Column(name = "user_id")
-    private UUID userId;
-
-    public UUID getUserId() {
-        return userId;
-    }
-
     public void setUserId(UUID userId) {
         this.userId = userId;
     }
 
-    private String type;
-
-    public String getType() {
-        return type;
-    }
-
     public void setType(String type) {
         this.type = type;
-    }  
-   
+    }
 }
