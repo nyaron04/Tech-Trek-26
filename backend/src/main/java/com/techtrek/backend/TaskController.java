@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.validation.Valid;
+
 @RestController
 @RequestMapping("/tasks")
 public class TaskController {
@@ -23,37 +25,45 @@ public class TaskController {
     }
 
     @GetMapping
-    public List<Task>getAllTasks() {
+    public List<Task> getAllTasks() {
         return taskRepository.findAll();
     }
 
     @GetMapping("/{id}")
     public Task getTask(@PathVariable UUID id) {
-        return taskRepository.findById(id).orElse(null);
+        return taskRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
     }
 
     @PostMapping
-    public Task createTask(@RequestBody Task task) {
+    public Task createTask(@Valid @RequestBody Task task) {
         task.setId(UUID.randomUUID());
         return taskRepository.save(task);
     }
 
+    
     @PutMapping("/{id}")
-    public Task updateTask(@PathVariable UUID id, @RequestBody Task updatedTask) {
-        Task task = taskRepository.findById(id).orElse(null);
-        if (task == null) return null;
+    public Task updateTask(@PathVariable UUID id, @Valid @RequestBody Task updatedTask) {
+        Task task = taskRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
 
         task.setTitle(updatedTask.getTitle());
         task.setDescription(updatedTask.getDescription());
         task.setStatus(updatedTask.getStatus());
         task.setCategoryId(updatedTask.getCategoryId());
+        task.setUserId(updatedTask.getUserId());
+        task.setType(updatedTask.getType());
 
         return taskRepository.save(task);
     }
 
     @DeleteMapping("/{id}")
-    public void deleteTask(@PathVariable UUID id) {
-        taskRepository.deleteById(id);
+    public String deleteTask(@PathVariable UUID id) {
+        Task task = taskRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
+
+        taskRepository.delete(task);
+        return "Task deleted successfully";
     }
 
     @GetMapping("/status/{status}")
@@ -70,6 +80,4 @@ public class TaskController {
     public List<Task> getTasksByType(@PathVariable String type) {
         return taskRepository.findByType(type);
     }
-
-
 }
