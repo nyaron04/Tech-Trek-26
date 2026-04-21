@@ -8,14 +8,55 @@ import {
   rootStyle, glassCard, pageHeader, titleStyle, subtitleStyle,
   yellowBtn, colors, shadow, fonts,
 } from '../styles/theme';
+import { supabase } from '../supabaseClient';
+import { signIn } from '../auth';
 
 export default function SigninPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const valid = email.trim() && password.length >= 1;
+  const busy = submitting || googleLoading;
+
+  async function handleSignIn() {
+    if (!valid || busy) return;
+    setError('');
+    setSubmitting(true);
+    try {
+      await signIn(email.trim(), password);
+      navigate('/dashboard');
+    } catch (e) {
+      setError(e?.message || 'Sign in failed');
+      setSubmitting(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setError('');
+    if (!supabase) {
+      setError('Google sign-in is not configured. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_PUBLISHABLE_KEY in frontend/.env and restart the dev server.');
+      return;
+    }
+    setGoogleLoading(true);
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/dashboard` },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setGoogleLoading(false);
+      }
+    } catch (e) {
+      setError(e?.message || 'Google sign-in failed');
+      setGoogleLoading(false);
+    }
+  }
 
   return (
     <div style={rootStyle}>
@@ -32,6 +73,7 @@ export default function SigninPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSignIn()}
             placeholder="you@example.com"
             style={inputStyle}
           />
@@ -42,6 +84,7 @@ export default function SigninPage() {
               type={showPw ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSignIn()}
               placeholder="••••••••"
               style={{ ...inputStyle, paddingRight: 52 }}
             />
@@ -57,12 +100,13 @@ export default function SigninPage() {
               height: 50,
               marginTop: 8,
               fontSize: 18,
-              opacity: valid ? 1 : 0.5,
+              opacity: valid && !busy ? 1 : 0.5,
+              cursor: busy ? 'wait' : 'pointer',
             }}
-            disabled={!valid}
-            onClick={() => navigate('/dashboard')}
+            disabled={!valid || busy}
+            onClick={handleSignIn}
           >
-            Sign in
+            {submitting ? 'Signing in…' : 'Sign in'}
           </button>
 
           <div style={divider}>
@@ -71,9 +115,15 @@ export default function SigninPage() {
             <span style={dividerLine} />
           </div>
 
-          <button style={googleBtn}>
-            <span>G</span> Continue with Google
+          <button
+            style={{ ...googleBtn, opacity: busy ? 0.6 : 1, cursor: busy ? 'wait' : 'pointer' }}
+            onClick={handleGoogleSignIn}
+            disabled={busy}
+          >
+            <span>G</span> {googleLoading ? 'Redirecting…' : 'Continue with Google'}
           </button>
+
+          {error && <p style={errorText}>{error}</p>}
         </div>
 
         <p style={footerText}>
@@ -192,4 +242,12 @@ const linkBtn = {
   fontSize: 14,
   cursor: 'pointer',
   textDecoration: 'underline',
+};
+
+const errorText = {
+  fontFamily: fonts.body,
+  fontSize: 13,
+  color: '#ff8a8a',
+  textAlign: 'center',
+  margin: '4px 0 0',
 };
