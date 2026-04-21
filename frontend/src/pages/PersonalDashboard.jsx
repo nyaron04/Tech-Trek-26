@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import Layout from '../components/Layout';
+import gnomeImg from '../assets/Gnome.png';
 import { colors, fonts, shadow } from '../styles/theme';
 
 const GEO = "'Georama', 'Inter', sans-serif";
@@ -17,7 +18,7 @@ const USER = {
   xp: 2490,
   title: 'Engineer',
   bio: "I'm not sure what to put here yet but we will find something to put here",
-  avatar: null,
+  avatar: gnomeImg,
 };
 
 const RING_STATS = [
