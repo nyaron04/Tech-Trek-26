@@ -2,17 +2,17 @@
 // Task list with add, complete, and delete actions.
 // Sidebar nav matches PersonalDashboard layout.
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { colors, fonts, shadow } from '../styles/theme';
 
-const INITIAL_TASKS = [
-  { id: 1, text: 'Finish chapter 5 notes',      done: false, project: 'Personal progress' },
-  { id: 2, text: 'Review Q2 resource plan',      done: true,  project: 'Resource planning' },
-  { id: 3, text: 'Update team payroll sheet',    done: false, project: 'Team productivity' },
-  { id: 4, text: 'Set weekly focus goals',       done: false, project: 'Personal progress' },
-  { id: 5, text: 'Send project status report',   done: true,  project: 'Team productivity' },
-];
+// const INITIAL_TASKS = [
+//   { id: 1, text: 'Finish chapter 5 notes',      done: false, project: 'Personal progress' },
+//   { id: 2, text: 'Review Q2 resource plan',      done: true,  project: 'Resource planning' },
+//   { id: 3, text: 'Update team payroll sheet',    done: false, project: 'Team productivity' },
+//   { id: 4, text: 'Set weekly focus goals',       done: false, project: 'Personal progress' },
+//   { id: 5, text: 'Send project status report',   done: true,  project: 'Team productivity' },
+// ];
 
 const NAV_ITEMS = [
   { label: 'Dashboard', route: '/dashboard', icon: '🏠' },
@@ -23,16 +23,50 @@ const NAV_ITEMS = [
 
 export default function TasksPage() {
   const navigate = useNavigate();
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const [tasks, setTasks] = useState([]);
   const [draft, setDraft] = useState('');
   const [filter, setFilter] = useState('all'); // all | active | done
 
-  const addTask = () => {
+  async function addTask() {
     const text = draft.trim();
     if (!text) return;
-    setTasks((t) => [...t, { id: Date.now(), text, done: false, project: 'Personal progress' }]);
+    // setTasks((t) => [...t, { id: Date.now(), text, done: false, project: 'Personal progress' }]);
+    try{
+      const newTask = {
+        title: text,
+        status: 'not completed',
+        description: 'test description',
+        type: 'homework',
+        categoryId: 'lsadn gjls gls vlan'
+      }
+      const response = await fetch('http://localhost:8080/tasks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(newTask),
+      })
+      const savedTask = await response.json();
+      console.log('Task created successfully:', savedTask);
+    } catch (error) {
+      console.error('Failed to create task:', error);
+    }
     setDraft('');
   };
+  useEffect(() => {
+    async function fetchdata() {
+    const response = await fetch('http://localhost:8080/tasks');
+    if (!response.ok) {
+      const errorText = await response.text(); // Read as text if not OK
+      console.error("Server Error:", errorText);
+      return;
+    }
+    const result = await response.json();
+    console.log(result)
+    setTasks(result)
+    };
+    fetchdata();
+  }, [])
 
   const toggle = (id) =>
     setTasks((t) => t.map((task) => task.id === id ? { ...task, done: !task.done } : task));
@@ -104,18 +138,18 @@ export default function TasksPage() {
           {visible.length === 0 && (
             <p style={emptyMsg}>No tasks here — enjoy the break!</p>
           )}
-          {visible.map(({ id, text, done, project }) => (
-            <div key={id} style={{ ...taskRow, opacity: done ? 0.6 : 1 }}>
-              <button style={checkCircle} onClick={() => toggle(id)}>
-                {done ? '✓' : ''}
+          {visible.map(task => (
+            <div key={task.id} style={{ ...taskRow, opacity: task.status ? 0.6 : 1 }}>
+              <button style={checkCircle} onClick={() => toggle(task.id)}>
+                {task.status ? '✓' : ''}
               </button>
               <div style={taskInfo}>
-                <span style={{ ...taskText, textDecoration: done ? 'line-through' : 'none' }}>
-                  {text}
+                <span style={{ ...taskText, textDecoration: task.status ? 'line-through' : 'none' }}>
+                  {task.descriptin}
                 </span>
-                <span style={taskProject}>{project}</span>
+                <span style={taskProject}>{task.title}</span>
               </div>
-              <button style={deleteBtn} onClick={() => remove(id)}>✕</button>
+              <button style={deleteBtn} onClick={() => remove(task.id)}>✕</button>
             </div>
           ))}
         </div>

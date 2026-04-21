@@ -3,6 +3,7 @@ package com.techtrek.backend;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 
 @RestController
+@CrossOrigin(origins = "http://localhost:3000")
 @RequestMapping("/tasks")
 public class TaskController {
 
@@ -26,6 +28,7 @@ public class TaskController {
 
     @GetMapping
     public List<Task> getAllTasks() {
+        System.out.println("Requested Tasks");
         return taskRepository.findAll();
     }
 
@@ -38,6 +41,7 @@ public class TaskController {
     @PostMapping
     public Task createTask(@Valid @RequestBody Task task) {
         task.setId(UUID.randomUUID());
+        System.out.println("Saving task: " + task.toString());
         return taskRepository.save(task);
     }
 
