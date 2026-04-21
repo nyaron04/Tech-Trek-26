@@ -1,322 +1,371 @@
-// Personal Dashboard — Figma node 2003:7
-// Shows study stats, active projects, recent sessions, and quick actions.
-// Sidebar nav + main content area, matching teal/glass design system.
+// Personal Dashboard — rebuilt with Layout wrapper
+// Uses the Honey Bee / StudyLynk design system from theme.js + Layout.jsx
 
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import Layout from '../components/Layout';
 import { colors, fonts, shadow } from '../styles/theme';
 
-const STATS = [
-  { label: 'Hours today',   value: '3h 42m', icon: '⏱' },
-  { label: 'Streak',        value: '12 days', icon: '🔥' },
-  { label: 'Tasks done',    value: '8 / 11',  icon: '✅' },
-  { label: 'Focus score',   value: '87%',     icon: '🎯' },
+const GEO = "'Georama', 'Inter', sans-serif";
+const TEAL = '#5BC8E8';
+const BORDER = 'rgba(255,255,255,0.14)';
+
+// ── Mock data ────────────────────────────────────────────────────────────────
+const USER = {
+  name: 'Josh Kwon',
+  initials: 'JK',
+  rank: 12,
+  xp: 2490,
+  title: 'Engineer',
+  bio: "I'm not sure what to put here yet but we will find something to put here",
+  avatar: null,
+};
+
+const RING_STATS = [
+  { label: 'All Tasks',    value: 98, max: 100, color: '#7B6FE8' },
+  { label: 'Academic',     value: 42, max: 100, color: '#9B6FE8' },
+  { label: 'Professional', value: 37, max: 100, color: TEAL },
+  { label: 'Clubs',        value: 12, max: 100, color: '#6FA8E8' },
 ];
 
-const PROJECTS = [
-  { name: 'Team productivity',     progress: 72, color: colors.yellow },
-  { name: 'Resource planning',     progress: 45, color: '#4CAF7A' },
-  { name: 'Personal progress',     progress: 88, color: '#7B6FE8' },
+const TASKS = [
+  { name: 'Calc III Problem Set', date: 'March 24th, 2026',  time: '1 hour 10 min', category: 'Academics'    },
+  { name: 'Internship Project',   date: 'March 20th, 2026',  time: '1 hour 5 min',  category: 'Professional' },
+  { name: 'Event Graphic',        date: 'Feb 15th, 2026',    time: '30 min',         category: 'Clubs'        },
+  { name: 'Uber PM Application',  date: 'Feb 8th, 2026',     time: '55 min',         category: 'Recruiting'   },
+  { name: 'Data Structures HW',   date: 'Jan 30th, 2026',    time: '2 hours',        category: 'Academics'    },
 ];
 
-const NAV_ITEMS = [
-  { label: 'Dashboard', route: '/dashboard', icon: '🏠' },
-  { label: 'Tasks',     route: '/tasks',     icon: '📋' },
-  { label: 'Timer',     route: '/timer',     icon: '⏱' },
-  { label: 'Calendar',  route: '/calendar',  icon: '📅' },
-];
+const PAGE_SIZES = [5, 10, 20];
 
-export default function PersonalDashboard() {
-  const navigate = useNavigate();
+const CATEGORY_COLOR = {
+  Academics:    '#9B6FE8',
+  Professional: TEAL,
+  Clubs:        '#6FA8E8',
+  Recruiting:   colors.yellow,
+};
+
+// ── Ring component ────────────────────────────────────────────────────────────
+function Ring({ value, max, color, label, size = 80 }) {
+  const r = (size - 10) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = (value / max) * circ;
 
   return (
-    <div style={root}>
-      {/* Sidebar */}
-      <aside style={sidebar}>
-        <div style={brand}>StudyLynk</div>
-        <nav style={navList}>
-          {NAV_ITEMS.map(({ label, route, icon }) => (
-            <button
-              key={route}
-              style={{
-                ...navItem,
-                background: route === '/dashboard' ? 'rgba(254,212,48,0.15)' : 'transparent',
-                borderLeft: route === '/dashboard' ? `3px solid ${colors.yellow}` : '3px solid transparent',
-              }}
-              onClick={() => navigate(route)}
-            >
-              <span>{icon}</span>
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
-        <button style={signOutBtn} onClick={() => navigate('/signin')}>
-          Sign out
-        </button>
-      </aside>
-
-      {/* Main content */}
-      <main style={main}>
-        <header style={topBar}>
-          <div>
-            <h1 style={greeting}>Good morning, Josh 👋</h1>
-            <p style={dateLabel}>{new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}</p>
-          </div>
-          <button style={timerQuickBtn} onClick={() => navigate('/timer')}>
-            Start focus session ▶
-          </button>
-        </header>
-
-        {/* Stats row */}
-        <div style={statsGrid}>
-          {STATS.map(({ label, value, icon }) => (
-            <div key={label} style={statCard}>
-              <span style={statIcon}>{icon}</span>
-              <span style={statValue}>{value}</span>
-              <span style={statLabel}>{label}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Projects */}
-        <section style={section}>
-          <h2 style={sectionTitle}>Active Projects</h2>
-          <div style={projectList}>
-            {PROJECTS.map(({ name, progress, color }) => (
-              <div key={name} style={projectCard}>
-                <div style={projectHeader}>
-                  <span style={projectName}>{name}</span>
-                  <span style={{ ...projectPct, color }}>{progress}%</span>
-                </div>
-                <div style={trackBg}>
-                  <div style={{ ...trackFill, width: `${progress}%`, background: color }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Quick actions */}
-        <section style={section}>
-          <h2 style={sectionTitle}>Quick Actions</h2>
-          <div style={actionRow}>
-            <button style={actionBtn} onClick={() => navigate('/tasks')}>
-              📋 View tasks
-            </button>
-            <button style={actionBtn} onClick={() => navigate('/calendar')}>
-              📅 Open calendar
-            </button>
-            <button style={{ ...actionBtn, background: colors.yellow, color: colors.black }}
-              onClick={() => navigate('/timer')}>
-              ⏱ Focus timer
-            </button>
-          </div>
-        </section>
-      </main>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none"
+            stroke="rgba(255,255,255,0.1)" strokeWidth={7} />
+          <circle cx={size/2} cy={size/2} r={r} fill="none"
+            stroke={color} strokeWidth={7}
+            strokeDasharray={`${filled} ${circ}`}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dasharray 0.6s ease' }}
+          />
+        </svg>
+        <span style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: GEO, fontSize: size * 0.22, fontWeight: 600,
+          color: colors.white,
+        }}>{value}</span>
+      </div>
+      <span style={{ fontFamily: GEO, fontSize: 11, color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
+        {label}
+      </span>
     </div>
   );
 }
 
-/* ── styles ───────────────────────────────────────────── */
+// ── Main component ────────────────────────────────────────────────────────────
+export default function PersonalDashboard() {
+  const [pageSize, setPageSize] = useState(5);
+  const [showSizeMenu, setShowSizeMenu] = useState(false);
 
-const root = {
-  display: 'flex',
-  width: '100vw',
-  height: '100vh',
-  background: 'linear-gradient(135deg,#0d2a35 0%,#1a4a5a 40%,#2d5260 70%,#0d2a35 100%)',
-  fontFamily: fonts.body,
-  overflow: 'hidden',
-};
+  const visibleTasks = TASKS.slice(0, pageSize);
 
-const sidebar = {
-  width: 220,
-  flexShrink: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  padding: '28px 0',
-  background: 'rgba(10,30,40,0.55)',
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-  borderRight: '1px solid rgba(255,255,255,0.1)',
-};
+  return (
+    <Layout>
+      <div style={s.page}>
 
-const brand = {
-  fontFamily: "'Albert Sans', sans-serif",
-  fontWeight: 700,
-  fontSize: 20,
-  color: colors.white,
-  padding: '0 24px 28px',
-  textShadow: shadow.text,
-};
+        {/* ── LEFT PANEL ── */}
+        <aside style={s.leftPanel}>
 
-const navList = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-  flex: 1,
-};
+          {/* Avatar */}
+          <div style={s.avatarWrap}>
+            <div style={s.avatarRing}>
+              {USER.avatar
+                ? <img src={USER.avatar} alt="" style={s.avatarImg} />
+                : <div style={s.avatarInitials}>{USER.initials}</div>
+              }
+            </div>
+          </div>
 
-const navItem = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 12,
-  padding: '12px 24px',
-  fontFamily: fonts.body,
-  fontSize: 15,
-  color: colors.white,
-  cursor: 'pointer',
-  border: 'none',
-  textAlign: 'left',
-  transition: 'background 0.15s',
-};
+          {/* Name + rank */}
+          <div style={s.userName}>{USER.name}</div>
+          <div style={s.userRank}>Rank: {USER.rank}</div>
 
-const signOutBtn = {
-  margin: '16px 24px 0',
-  padding: '10px 0',
-  borderRadius: 8,
-  border: '1px solid rgba(255,255,255,0.3)',
-  background: 'transparent',
-  color: colors.white,
-  fontFamily: fonts.body,
-  fontSize: 14,
-  cursor: 'pointer',
-};
+          {/* XP pill */}
+          <div style={s.xpPill}>Experience Level: {USER.xp.toLocaleString()}</div>
 
-const main = {
-  flex: 1,
-  overflowY: 'auto',
-  padding: '36px 40px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 28,
-};
+          {/* Bio */}
+          <div style={s.bioPill}>{USER.bio}</div>
+        </aside>
 
-const topBar = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  justifyContent: 'space-between',
-  flexWrap: 'wrap',
-  gap: 16,
-};
+        {/* ── RIGHT PANEL ── */}
+        <main style={s.rightPanel}>
 
-const greeting = {
-  margin: 0,
-  fontFamily: "'Albert Sans', sans-serif",
-  fontWeight: 400,
-  fontSize: 28,
-  color: colors.white,
-  textShadow: shadow.text,
-};
+          {/* Ring stats row */}
+          <div style={s.ringRow}>
+            {RING_STATS.map(r => (
+              <Ring key={r.label} value={r.value} max={r.max} color={r.color} label={r.label} size={88} />
+            ))}
+          </div>
 
-const dateLabel = {
-  margin: '4px 0 0',
-  fontSize: 14,
-  color: 'rgba(255,255,255,0.65)',
-};
+          {/* Tasks table */}
+          <div style={s.tableCard}>
+            {/* Table header */}
+            <div style={s.tableHeader}>
+              <span style={s.tableTitle}>List of Tasks Completed</span>
+              {/* Page size selector */}
+              <div style={{ position: 'relative' }}>
+                <button style={s.pageSizeBtn} onClick={() => setShowSizeMenu(v => !v)}>
+                  Page Size: {pageSize} ▾
+                </button>
+                {showSizeMenu && (
+                  <div style={s.dropdown}>
+                    {PAGE_SIZES.map(n => (
+                      <button key={n} style={{
+                        ...s.dropItem,
+                        background: n === pageSize ? 'rgba(91,200,232,0.15)' : 'transparent',
+                        color: n === pageSize ? TEAL : 'rgba(255,255,255,0.8)',
+                      }} onClick={() => { setPageSize(n); setShowSizeMenu(false); }}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
-const timerQuickBtn = {
-  height: 44,
-  padding: '0 24px',
-  borderRadius: 10,
-  background: colors.yellow,
-  border: 'none',
-  fontFamily: fonts.body,
-  fontWeight: 600,
-  fontSize: 15,
-  color: colors.black,
-  cursor: 'pointer',
-  boxShadow: shadow.box,
-};
+            {/* Column labels */}
+            <div style={s.colRow}>
+              <span style={{ flex: 3 }}>Task Name</span>
+              <span style={{ flex: 2 }}>Date Completed</span>
+              <span style={{ flex: 2 }}>Time Spent</span>
+              <span style={{ flex: 2 }}>Task Category</span>
+            </div>
 
-const statsGrid = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(4, 1fr)',
-  gap: 16,
-};
+            {/* Rows */}
+            {visibleTasks.map((task, i) => (
+              <div key={i} style={s.taskRow}>
+                <span style={{ flex: 3, fontWeight: 500 }}>{task.name}</span>
+                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.date}</span>
+                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.time}</span>
+                <span style={{ flex: 2 }}>
+                  <span style={{
+                    ...s.categoryTag,
+                    background: (CATEGORY_COLOR[task.category] || '#888') + '22',
+                    color: CATEGORY_COLOR[task.category] || 'rgba(255,255,255,0.7)',
+                    border: `1px solid ${(CATEGORY_COLOR[task.category] || '#888')}55`,
+                  }}>
+                    {task.category}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
 
-const statCard = {
-  background: 'rgba(45,82,96,0.28)',
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-  borderRadius: 16,
-  padding: '20px 16px',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 6,
-  boxShadow: shadow.box,
-};
+        </main>
+      </div>
+    </Layout>
+  );
+}
 
-const statIcon = { fontSize: 26 };
+// ── Styles ────────────────────────────────────────────────────────────────────
+const s = {
+  page: {
+    display: 'flex',
+    width: '100%',
+    height: '100%',
+    gap: 20,
+    padding: '24px 28px',
+    boxSizing: 'border-box',
+    overflowY: 'auto',
+  },
 
-const statValue = {
-  fontFamily: "'Albert Sans', sans-serif",
-  fontWeight: 600,
-  fontSize: 22,
-  color: colors.white,
-  textShadow: shadow.text,
-};
+  // Left panel
+  leftPanel: {
+    width: 200,
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatarWrap: {
+    marginBottom: 4,
+  },
+  avatarRing: {
+    width: 110,
+    height: 110,
+    borderRadius: '50%',
+    border: `3px solid ${BORDER}`,
+    background: 'rgba(255,255,255,0.08)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  avatarInitials: {
+    fontFamily: GEO,
+    fontSize: 32,
+    fontWeight: 600,
+    color: colors.white,
+  },
+  userName: {
+    fontFamily: GEO,
+    fontSize: 15,
+    fontWeight: 600,
+    color: colors.white,
+    textAlign: 'center',
+  },
+  userRank: {
+    fontFamily: GEO,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
+  },
+  xpPill: {
+    width: '100%',
+    background: 'rgba(255,255,255,0.08)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 10,
+    padding: '10px 12px',
+    fontFamily: GEO,
+    fontSize: 12,
+    color: colors.white,
+    textAlign: 'center',
+    backdropFilter: 'blur(10px)',
+  },
+  bioPill: {
+    width: '100%',
+    background: 'rgba(255,255,255,0.06)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 10,
+    padding: '12px 14px',
+    fontFamily: GEO,
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 1.5,
+    backdropFilter: 'blur(10px)',
+  },
 
-const statLabel = {
-  fontSize: 12,
-  color: 'rgba(255,255,255,0.65)',
-  textAlign: 'center',
-};
+  // Right panel
+  rightPanel: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 20,
+    minWidth: 0,
+  },
+  ringRow: {
+    display: 'flex',
+    gap: 28,
+    background: 'rgba(255,255,255,0.07)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 18,
+    padding: '20px 28px',
+    backdropFilter: 'blur(16px)',
+    justifyContent: 'space-around',
+  },
 
-const section = { display: 'flex', flexDirection: 'column', gap: 12 };
-
-const sectionTitle = {
-  margin: 0,
-  fontFamily: "'Albert Sans', sans-serif",
-  fontWeight: 400,
-  fontSize: 18,
-  color: colors.white,
-  textShadow: shadow.text,
-};
-
-const projectList = { display: 'flex', flexDirection: 'column', gap: 12 };
-
-const projectCard = {
-  background: 'rgba(45,82,96,0.22)',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
-  borderRadius: 12,
-  padding: '16px 20px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-  boxShadow: shadow.box,
-};
-
-const projectHeader = { display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
-
-const projectName = { fontSize: 15, color: colors.white, fontWeight: 400 };
-
-const projectPct = { fontSize: 14, fontWeight: 600 };
-
-const trackBg = {
-  height: 6,
-  borderRadius: 3,
-  background: 'rgba(255,255,255,0.15)',
-  overflow: 'hidden',
-};
-
-const trackFill = {
-  height: '100%',
-  borderRadius: 3,
-  transition: 'width 0.4s ease',
-};
-
-const actionRow = { display: 'flex', gap: 12, flexWrap: 'wrap' };
-
-const actionBtn = {
-  height: 44,
-  padding: '0 20px',
-  borderRadius: 10,
-  border: `1px solid rgba(255,255,255,0.3)`,
-  background: 'rgba(45,82,96,0.3)',
-  color: colors.white,
-  fontFamily: fonts.body,
-  fontSize: 15,
-  cursor: 'pointer',
-  backdropFilter: 'blur(8px)',
+  // Table
+  tableCard: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.07)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 18,
+    padding: '20px 24px',
+    backdropFilter: 'blur(16px)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 0,
+  },
+  tableHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  tableTitle: {
+    fontFamily: GEO,
+    fontSize: 15,
+    fontWeight: 600,
+    color: colors.white,
+  },
+  pageSizeBtn: {
+    background: 'rgba(255,255,255,0.09)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    padding: '5px 12px',
+    fontFamily: GEO,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    cursor: 'pointer',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '110%',
+    right: 0,
+    background: 'rgba(10,30,40,0.92)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    overflow: 'hidden',
+    zIndex: 10,
+    backdropFilter: 'blur(20px)',
+    minWidth: 80,
+  },
+  dropItem: {
+    display: 'block',
+    width: '100%',
+    padding: '8px 16px',
+    fontFamily: GEO,
+    fontSize: 13,
+    border: 'none',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  colRow: {
+    display: 'flex',
+    padding: '0 4px 8px',
+    fontFamily: GEO,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    borderBottom: `1px solid ${BORDER}`,
+    marginBottom: 4,
+    gap: 8,
+  },
+  taskRow: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '14px 4px',
+    fontFamily: GEO,
+    fontSize: 13,
+    color: colors.white,
+    borderBottom: `1px solid rgba(255,255,255,0.06)`,
+    gap: 8,
+  },
+  categoryTag: {
+    display: 'inline-block',
+    padding: '3px 10px',
+    borderRadius: 20,
+    fontSize: 11,
+    fontWeight: 500,
+  },
 };
