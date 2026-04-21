@@ -123,11 +123,11 @@ export default function MainPage() {
         </p>
 
         <div style={s.btnRow}>
-          <button style={s.btnYellow} onClick={() => navigate('/welcome')}>
-            Start planning for free
+          <button style={s.btnYellow} onClick={() => navigate('/signin')}>
+            Login to your account
           </button>
 
-          <button style={s.btnOutline}>
+          <button style={s.btnOutline} onClick={() => navigate('/dashboard')}>
             <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
               <circle cx="11" cy="11" r="10" stroke="currentColor" strokeWidth="1.8" />
               <polygon points="9,7 16,11 9,15" fill="currentColor" />
