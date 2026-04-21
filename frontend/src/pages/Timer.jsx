@@ -98,6 +98,7 @@ const s = {
     width: '100%',
     objectFit: 'cover',
     imageRendering: 'pixelated',
+    filter: 'blur(3px)',
     zIndex: 1,
     pointerEvents: 'none',
     display: 'block',

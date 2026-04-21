@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 import MainPage         from './pages/MainPage';
-import WelcomeDashboard from './pages/WelcomeDashboard';
 import UserPlan         from './pages/UserPlan';
 import ThemeChoice      from './pages/ThemeChoice';
 import SigninPage       from './pages/SigninPage';
@@ -21,7 +20,6 @@ export default function App() {
         <Route path="/"               element={<MainPage />} />
 
         {/* Onboarding flow */}
-        <Route path="/welcome"        element={<WelcomeDashboard onNext={() => {}} />} />
         <Route path="/user-plan"      element={<UserPlan />} />
         <Route path="/theme"          element={<ThemeChoice />} />
 
