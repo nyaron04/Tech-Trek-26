@@ -198,6 +198,7 @@ const s = {
     zIndex: 2,
     pointerEvents: 'none',
     display: 'block',
+    filter: 'blur(3px)',
   },
   shell: {
     position: 'relative',
