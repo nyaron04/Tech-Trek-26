@@ -47,7 +47,7 @@ export default function MainPage() {
         </p>
 
         <div style={ctaRow}>
-          <button style={primaryCta} onClick={() => navigate('/welcome')}>
+          <button style={primaryCta} onClick={() => navigate('/signin')}>
             Start planning for free
           </button>
 

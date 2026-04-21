@@ -27,13 +27,20 @@ const RING_STATS = [
   { label: 'Clubs',        value: 12, max: 100, color: '#6FA8E8' },
 ];
 
-const TASKS = [
-  { name: 'Calc III Problem Set', date: 'March 24th, 2026',  time: '1 hour 10 min', category: 'Academics'    },
-  { name: 'Internship Project',   date: 'March 20th, 2026',  time: '1 hour 5 min',  category: 'Professional' },
-  { name: 'Event Graphic',        date: 'Feb 15th, 2026',    time: '30 min',         category: 'Clubs'        },
-  { name: 'Uber PM Application',  date: 'Feb 8th, 2026',     time: '55 min',         category: 'Recruiting'   },
-  { name: 'Data Structures HW',   date: 'Jan 30th, 2026',    time: '2 hours',        category: 'Academics'    },
-];
+let TASKS = [];
+// const TASKS = [
+//   { name: 'Calc III Problem Set', date: 'March 24th, 2026',  time: '1 hour 10 min', category: 'Academics'    },
+//   { name: 'Internship Project',   date: 'March 20th, 2026',  time: '1 hour 5 min',  category: 'Professional' },
+//   { name: 'Event Graphic',        date: 'Feb 15th, 2026',    time: '30 min',         category: 'Clubs'        },
+//   { name: 'Uber PM Application',  date: 'Feb 8th, 2026',     time: '55 min',         category: 'Recruiting'   },
+//   { name: 'Data Structures HW',   date: 'Jan 30th, 2026',    time: '2 hours',        category: 'Academics'    },
+// ];
+
+async function getTasks(){
+  const response = await fetch('http://localhost:8080/tasks/user/{userid}');
+  const result = response.json();
+  TASKS = result;
+}
 
 const PAGE_SIZES = [5, 10, 20];
 

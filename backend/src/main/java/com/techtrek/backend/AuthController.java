@@ -26,11 +26,13 @@ public class AuthController {
     @PostMapping("/signup")
     public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest request) {
         AuthResponse response = authService.signup(request);
+        System.out.println("Signup requested: "+request.toString());
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+        System.out.println("Login requested by: " + request.toString());
         return ResponseEntity.ok(authService.login(request));
     }
 
