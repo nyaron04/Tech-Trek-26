@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { getCurrentUser } from '../auth';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import beeLogo  from '../assets/Honey Bee Logo.png';
@@ -50,6 +51,7 @@ function fmtTimer(s) {
 export default function Layout({ children }) {
   const navigate  = useNavigate();
   const { pathname } = useLocation();
+  const name = getCurrentUser().displayName;
 
   const [workingOn,   setWorkingOn]   = useState('');
   const [selectedTag, setSelectedTag] = useState('Work');
@@ -89,8 +91,8 @@ export default function Layout({ children }) {
         {/* ── TOP BAR ── */}
         <header style={s.topBar}>
           <div style={s.profileArea}>
-            <div style={s.avatar}>JK</div>
-            <span style={s.profileName}>Josh Kwon</span>
+            <div style={s.avatar}>{name[0]}</div>
+            <span style={s.profileName}>{name}</span>
           </div>
 
           <div style={s.workWrap}>

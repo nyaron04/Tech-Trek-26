@@ -2,6 +2,7 @@
 // Uses the Honey Bee / StudyLynk design system from theme.js + Layout.jsx
 
 import { useState } from 'react';
+import { getCurrentUser } from '../auth';
 import Layout from '../components/Layout';
 import gnomeImg from '../assets/Gnome.png';
 import { colors, fonts, shadow } from '../styles/theme';
@@ -11,11 +12,12 @@ const TEAL = '#5BC8E8';
 const BORDER = 'rgba(255,255,255,0.14)';
 
 // ── Mock data ────────────────────────────────────────────────────────────────
+const name = getCurrentUser().displayName;
 const USER = {
-  name: 'Josh Kwon',
-  initials: 'JK',
-  rank: 12,
-  xp: 2490,
+  name: name,
+  initials: name[0],
+  rank: 12, //TODO
+  xp: 2490, //TODO
   title: 'Engineer',
   bio: "I'm not sure what to put here yet but we will find something to put here",
   avatar: gnomeImg,
