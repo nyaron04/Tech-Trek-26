@@ -21,13 +21,15 @@ function getWeekDates(offset = 0) {
 const HOURS     = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const TASK_CATEGORIES = [
+const INIT_CATEGORIES = [
   { label: 'Work',     color: TEAL,      count: 3 },
   { label: 'Personal', color: '#7BDE8A', count: 2 },
   { label: 'Study',    color: '#E8C85B', count: 5 },
   { label: 'Health',   color: '#E87B5B', count: 1 },
   { label: 'Creative', color: '#BE7BE8', count: 2 },
 ];
+
+const COLOR_ROTATION = [TEAL, '#7BDE8A', '#E8C85B', '#E87B5B', '#BE7BE8', '#E85B9A', '#5BE8B4'];
 
 // Keyed "dayIndex-hour" (0 = Mon … 6 = Sun)
 const WEEK_EVENTS = {
@@ -51,10 +53,27 @@ function fmtHour(h) {
 }
 
 export default function CalendarPage() {
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [chatInput,  setChatInput]  = useState('');
-  const [msgs,       setMsgs]       = useState(INIT_CHAT);
+  const [weekOffset,    setWeekOffset]    = useState(0);
+  const [chatInput,     setChatInput]     = useState('');
+  const [msgs,          setMsgs]          = useState(INIT_CHAT);
+  const [categories,    setCategories]    = useState(INIT_CATEGORIES);
+  const [showAddInput,  setShowAddInput]  = useState(false);
+  const [newCatName,    setNewCatName]    = useState('');
+  const [hoveredCat,    setHoveredCat]    = useState(null);
   const chatEndRef = useRef(null);
+
+  const addCategory = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    const color = COLOR_ROTATION[categories.length % COLOR_ROTATION.length];
+    setCategories(prev => [...prev, { label: name, color, count: 0 }]);
+    setNewCatName('');
+    setShowAddInput(false);
+  };
+
+  const deleteCategory = label => {
+    setCategories(prev => prev.filter(c => c.label !== label));
+  };
 
   const weekDates = getWeekDates(weekOffset);
   const todayISO  = new Date().toISOString().slice(0, 10);
@@ -149,15 +168,45 @@ export default function CalendarPage() {
         <div style={s.card}>
           <div style={s.cardTitle}>Task Categories</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {TASK_CATEGORIES.map(({ label, color, count }) => (
-              <div key={label} style={s.catRow}>
+            {categories.map(({ label, color, count }) => (
+              <div
+                key={label}
+                style={s.catRow}
+                onMouseEnter={() => setHoveredCat(label)}
+                onMouseLeave={() => setHoveredCat(null)}
+              >
                 <div style={{ ...s.catDot, background: color }} />
                 <span style={s.catLabel}>{label}</span>
                 <span style={{ ...s.catCount, color }}>{count}</span>
+                <button
+                  style={{ ...s.catDeleteBtn, opacity: hoveredCat === label ? 1 : 0 }}
+                  onClick={() => deleteCategory(label)}
+                >×</button>
               </div>
             ))}
           </div>
-          <button style={s.addTaskBtn}>+ Add Task</button>
+          {showAddInput && (
+            <div style={s.catInputRow}>
+              <input
+                style={s.catInput}
+                placeholder="Category name"
+                value={newCatName}
+                autoFocus
+                onChange={e => setNewCatName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') addCategory();
+                  if (e.key === 'Escape') { setShowAddInput(false); setNewCatName(''); }
+                }}
+              />
+              <button style={s.catConfirmBtn} onClick={addCategory}>✓</button>
+            </div>
+          )}
+          <button
+            style={s.addTaskBtn}
+            onClick={() => setShowAddInput(v => !v)}
+          >
+            + Add Category
+          </button>
         </div>
 
         {/* Bumble Assistant */}
@@ -402,6 +451,49 @@ const s = {
     cursor: 'pointer',
     width: '100%',
     transition: 'background 0.15s',
+  },
+  catDeleteBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.55)',
+    cursor: 'pointer',
+    fontSize: 15,
+    lineHeight: 1,
+    padding: '0 2px',
+    transition: 'opacity 0.15s',
+    flexShrink: 0,
+  },
+  catInputRow: {
+    display: 'flex',
+    gap: 6,
+    alignItems: 'center',
+  },
+  catInput: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.09)',
+    border: `1px solid rgba(91,200,232,0.4)`,
+    borderRadius: 7,
+    padding: '5px 8px',
+    fontFamily: GEO,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
+    outline: 'none',
+    minWidth: 0,
+  },
+  catConfirmBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    background: 'rgba(91,200,232,0.25)',
+    border: `1px solid rgba(91,200,232,0.5)`,
+    color: TEAL,
+    fontSize: 13,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    padding: 0,
   },
   chatCard: {
     flex: 1,

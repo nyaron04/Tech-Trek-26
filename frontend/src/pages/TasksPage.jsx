@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
+import { yellowBtn } from '../styles/theme';
 
 const GEO = "'Georama', 'Inter', sans-serif";
 const WHITE = '#fff';
@@ -216,11 +217,14 @@ export default function TasksPage() {
             rows={4}
           />
 
-          {/* Select Calendar */}
-          <button style={s.calBtn}>
-            <CalendarBtnIcon />
-            <span>Select Calendar</span>
-          </button>
+          {/* Button row */}
+          <div style={s.btnRow}>
+            <button style={s.calBtn}>
+              <CalendarBtnIcon />
+              <span>Select Calendar</span>
+            </button>
+            <button style={s.addTaskBtn}>Add Task</button>
+          </div>
         </div>
       </main>
     </Layout>
@@ -337,7 +341,19 @@ const s = {
     fontSize: 14,
     color: WHITE,
     cursor: 'pointer',
-    alignSelf: 'flex-start',
     transition: 'background 0.15s',
+  },
+  btnRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addTaskBtn: {
+    ...yellowBtn,
+    borderRadius: 20,
+    height: 'auto',
+    padding: '8px 20px',
+    fontSize: 14,
+    fontFamily: GEO,
   },
 };
