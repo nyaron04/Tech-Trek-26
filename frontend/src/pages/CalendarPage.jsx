@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
+import { getCurrentUser, getUserId } from '../auth';
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -16,6 +17,22 @@ function getWeekDates(offset = 0) {
     d.setDate(mon.getDate() + i);
     return d;
   });
+}
+
+function addCategory(userId, name, color) {
+  const Category = { 
+    userId: userId, 
+    name: name, 
+    color: color
+  };
+  const response = fetch('http://localhost:8080/api/categories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Category),
+  });
+
+  console.log('Adding category:', Category);
+  console.log('Server response:', response);
 }
 
 const HOURS     = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
@@ -61,15 +78,6 @@ export default function CalendarPage() {
   const [newCatName,    setNewCatName]    = useState('');
   const [hoveredCat,    setHoveredCat]    = useState(null);
   const chatEndRef = useRef(null);
-
-  const addCategory = () => {
-    const name = newCatName.trim();
-    if (!name) return;
-    const color = COLOR_ROTATION[categories.length % COLOR_ROTATION.length];
-    setCategories(prev => [...prev, { label: name, color, count: 0 }]);
-    setNewCatName('');
-    setShowAddInput(false);
-  };
 
   const deleteCategory = label => {
     setCategories(prev => prev.filter(c => c.label !== label));
@@ -194,11 +202,11 @@ export default function CalendarPage() {
                 autoFocus
                 onChange={e => setNewCatName(e.target.value)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter') addCategory();
+                  if (e.key === 'Enter') addCategory(getUserId(), newCatName.trim(), COLOR_ROTATION[categories.length % COLOR_ROTATION.length]);
                   if (e.key === 'Escape') { setShowAddInput(false); setNewCatName(''); }
                 }}
               />
-              <button style={s.catConfirmBtn} onClick={addCategory}>✓</button>
+              <button style={s.catConfirmBtn} >✓</button>
             </div>
           )}
           <button

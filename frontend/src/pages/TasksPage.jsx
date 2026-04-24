@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
+import { getCurrentUser } from '../auth';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
-import { yellowBtn } from '../styles/theme';
 
 const GEO = "'Georama', 'Inter', sans-serif";
 const WHITE = '#fff';
@@ -13,6 +13,27 @@ const WHITE08 = 'rgba(255,255,255,0.08)';
 const BORDER = 'rgba(255,255,255,0.25)';
 
 const TYPES = ['Task', 'Project', 'Homework'];
+
+function addTask(category, title, description, deadline, type){
+  const task = {
+    userid: getCurrentUser().id,
+    categoryid: category,
+    title: title,
+    description: description,
+    deadline: deadline,
+    status: 'incomplete',
+    type: type
+  }
+  const response = fetch('http://localhost:8080/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(task),
+  });
+  const result = response.json();
+  if(!response.ok){
+    throw new Error(`Failed to add task (${response.status})`);
+  }
+}
 
 function ClockIcon() {
   return (
@@ -217,14 +238,11 @@ export default function TasksPage() {
             rows={4}
           />
 
-          {/* Button row */}
-          <div style={s.btnRow}>
-            <button style={s.calBtn}>
-              <CalendarBtnIcon />
-              <span>Select Calendar</span>
-            </button>
-            <button style={s.addTaskBtn}>Add Task</button>
-          </div>
+          {/* Select Calendar */}
+          <button style={s.calBtn}>
+            <CalendarBtnIcon />
+            <span>Select Calendar</span>
+          </button>
         </div>
       </main>
     </Layout>
@@ -341,19 +359,7 @@ const s = {
     fontSize: 14,
     color: WHITE,
     cursor: 'pointer',
+    alignSelf: 'flex-start',
     transition: 'background 0.15s',
-  },
-  btnRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 12,
-  },
-  addTaskBtn: {
-    ...yellowBtn,
-    borderRadius: 20,
-    height: 'auto',
-    padding: '8px 20px',
-    fontSize: 14,
-    fontFamily: GEO,
   },
 };
