@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TaskRepository extends JpaRepository<Task, UUID> {
+    List<Task> findByUserId(UUID userId);
     List<Task> findByStatus(String status);
     List<Task> findByCategoryId(UUID categoryId);
     List<Task> findByType(String type);
