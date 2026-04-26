@@ -1,8 +1,9 @@
 // Personal Dashboard — rebuilt with Layout wrapper
 // Uses the Honey Bee / StudyLynk design system from theme.js + Layout.jsx
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
+import { useCurrentUser } from '../auth';
 import gnomeImg from '../assets/Gnome.png';
 import { colors, fonts, shadow } from '../styles/theme';
 
@@ -10,13 +11,14 @@ const GEO = "'Georama', 'Inter', sans-serif";
 const TEAL = '#5BC8E8';
 const BORDER = 'rgba(255,255,255,0.14)';
 
-// ── Mock data ────────────────────────────────────────────────────────────────
-const USER = {
-  name: 'Josh Kwon',
-  initials: 'JK',
+function getInitials(name) {
+  if (!name) return '?';
+  return name.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join('');
+}
+
+const STATIC_USER = {
   rank: 12,
-  xp: 2490,
-  title: 'Engineer',
+  xp: 0,
   bio: "I'm not sure what to put here yet but we will find something to put here",
   avatar: gnomeImg,
 };
@@ -87,8 +89,21 @@ function Ring({ value, max, color, label, size = 80 }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function PersonalDashboard() {
+  const currentUser = useCurrentUser();
+  const userName = currentUser?.displayName || currentUser?.name || 'User';
+  const userInitials = getInitials(userName);
+
+  const [xp, setXp] = useState(() => parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
+  const [bio, setBio] = useState(() => localStorage.getItem('honeybee_bio') ?? STATIC_USER.bio);
   const [pageSize, setPageSize] = useState(5);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setXp(parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const visibleTasks = TASKS.slice(0, pageSize);
 
@@ -102,22 +117,24 @@ export default function PersonalDashboard() {
           {/* Avatar */}
           <div style={s.avatarWrap}>
             <div style={s.avatarRing}>
-              {USER.avatar
-                ? <img src={USER.avatar} alt="" style={s.avatarImg} />
-                : <div style={s.avatarInitials}>{USER.initials}</div>
+              {STATIC_USER.avatar
+                ? <img src={STATIC_USER.avatar} alt="" style={s.avatarImg} />
+                : <div style={s.avatarInitials}>{userInitials}</div>
               }
             </div>
           </div>
 
-          {/* Name + rank */}
-          <div style={s.userName}>{USER.name}</div>
-          <div style={s.userRank}>Rank: {USER.rank}</div>
+          <div style={s.userName}>{userName}</div>
 
           {/* XP pill */}
-          <div style={s.xpPill}>Experience Level: {USER.xp.toLocaleString()}</div>
+          <div style={s.xpPill}>Experience Level: {xp.toLocaleString()}</div>
 
           {/* Bio */}
-          <div style={s.bioPill}>{USER.bio}</div>
+          <textarea
+            style={s.bioPill}
+            value={bio}
+            onChange={e => { setBio(e.target.value); localStorage.setItem('honeybee_bio', e.target.value); }}
+          />
         </aside>
 
         {/* ── RIGHT PANEL ── */}
@@ -263,6 +280,7 @@ const s = {
   },
   bioPill: {
     width: '100%',
+    minHeight: 80,
     background: 'rgba(255,255,255,0.06)',
     border: `1px solid ${BORDER}`,
     borderRadius: 10,
@@ -272,6 +290,8 @@ const s = {
     color: 'rgba(255,255,255,0.6)',
     lineHeight: 1.5,
     backdropFilter: 'blur(10px)',
+    resize: 'none',
+    outline: 'none',
   },
 
   // Right panel

@@ -1,10 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
 const BORDER = 'rgba(255,255,255,0.14)';
 const BLR    = 'blur(18px)';
+
+// Modal-form color tokens (match TasksPage)
+const WHITE    = '#fff';
+const WHITE60  = 'rgba(255,255,255,0.6)';
+const WHITE40  = 'rgba(255,255,255,0.4)';
+const WHITE15  = 'rgba(255,255,255,0.15)';
+const WHITE08  = 'rgba(255,255,255,0.08)';
+const MBORDER  = 'rgba(255,255,255,0.25)';
+
+const TYPES = ['Task', 'Project', 'Homework'];
 
 function getWeekDates(offset = 0) {
   const now = new Date();
@@ -18,28 +30,26 @@ function getWeekDates(offset = 0) {
   });
 }
 
-const HOURS     = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
+const HOURS      = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const INIT_CATEGORIES = [
-  { label: 'Work',     color: TEAL,      count: 3 },
-  { label: 'Personal', color: '#7BDE8A', count: 2 },
-  { label: 'Study',    color: '#E8C85B', count: 5 },
-  { label: 'Health',   color: '#E87B5B', count: 1 },
-  { label: 'Creative', color: '#BE7BE8', count: 2 },
+  { label: 'Work',     color: TEAL,      count: 0 },
+  { label: 'Personal', color: '#7BDE8A', count: 0 },
+  { label: 'Study',    color: '#E8C85B', count: 0 },
 ];
 
 const COLOR_ROTATION = [TEAL, '#7BDE8A', '#E8C85B', '#E87B5B', '#BE7BE8', '#E85B9A', '#5BE8B4'];
 
-// Keyed "dayIndex-hour" (0 = Mon … 6 = Sun)
-const WEEK_EVENTS = {
-  '0-10': { title: 'Deep Work',      color: '#7BDE8A' },
-  '1-15': { title: 'Lunch Meeting',  color: '#E87B5B' },
-  '2-9':  { title: 'Team Sync',      color: TEAL      },
-  '2-14': { title: 'Project Review', color: '#E8C85B' },
-  '4-11': { title: 'Study Session',  color: '#BE7BE8' },
-  '6-13': { title: 'Planning',       color: '#E87B5B' },
-};
+const CAT_COLORS = [
+  '#5BC8E8', // teal
+  '#9B6FE8', // purple
+  '#E8A05B', // orange
+  '#E85B9A', // pink
+  '#7BDE8A', // green
+  '#E85B5B', // red
+];
+
 
 const INIT_CHAT = [
   { from: 'bot',  text: "Hi! I'm Bumble 🐝 How can I help you today?" },
@@ -52,31 +62,306 @@ function fmtHour(h) {
   return h < 12 ? `${h} AM` : `${h - 12} PM`;
 }
 
+function fmtDate(date) {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric',
+  }).replace(/(\w+), (\w+) (\d+)/, (_, wd, mo, d) => {
+    const suffix = ['th','st','nd','rd'][
+      ((d % 100 - 11) % 10) < 4 && (d % 100 - 11) >= 0
+        ? 0
+        : [1,2,3].includes(d % 10) ? d % 10 : 0
+    ] || 'th';
+    return `${wd}, ${mo} ${d}${suffix}`;
+  });
+}
+
+function fmtTime(date) {
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toLowerCase().replace(' ', '');
+}
+
+function ClockIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="9.5" stroke={WHITE60} strokeWidth="1.5" />
+      <line x1="11" y1="6" x2="11" y2="11" stroke={WHITE60} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="11" y1="11" x2="14.5" y2="13.5" stroke={WHITE60} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="9.5" stroke={WHITE60} strokeWidth="1.5" />
+      <circle cx="11" cy="11" r="5.5" stroke={WHITE60} strokeWidth="1.5" />
+      <circle cx="11" cy="11" r="2" fill={WHITE60} />
+    </svg>
+  );
+}
+
+// ── Task Modal ────────────────────────────────────────────────────────────────
+function TaskModal({ onClose, initialDate, categories, onAddTask }) {
+  const [taskType,           setTaskType]           = useState('Task');
+  const [title,              setTitle]              = useState('');
+  const [description,        setDescription]        = useState('');
+  const [selectedCategory,   setSelectedCategory]   = useState(null);
+  const [startDate,          setStartDate]          = useState(() => initialDate || (() => {
+    const d = new Date(); d.setMinutes(0, 0, 0); return d;
+  })());
+  const [endDate,            setEndDate]            = useState(() => {
+    const base = initialDate ? new Date(initialDate) : new Date();
+    if (!initialDate) base.setMinutes(0, 0, 0);
+    base.setHours(base.getHours() + 1);
+    return base;
+  });
+  const [deadline,           setDeadline]           = useState(null);
+  const [showStartPicker,    setShowStartPicker]    = useState(false);
+  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false);
+  const startPickerRef    = useRef(null);
+  const deadlinePickerRef = useRef(null);
+
+  const dateLabel     = fmtDate(startDate);
+  const timeLabel     = `${fmtTime(startDate)} – ${fmtTime(endDate)}`;
+  const deadlineLabel = deadline ? fmtDate(deadline) : 'Add deadline';
+
+  return (
+    <div style={m.overlay} onMouseDown={onClose}>
+      <style>{`
+        .cal-dp-wrap .react-datepicker-popper { z-index: 200; }
+        .cal-dp-wrap .react-datepicker {
+          font-family: ${GEO};
+          background: rgba(20,50,65,0.97);
+          border: 1px solid ${MBORDER};
+          border-radius: 14px;
+          color: ${WHITE};
+          backdrop-filter: blur(20px);
+        }
+        .cal-dp-wrap .react-datepicker__header {
+          background: rgba(255,255,255,0.08);
+          border-bottom: 1px solid ${MBORDER};
+          border-radius: 14px 14px 0 0;
+        }
+        .cal-dp-wrap .react-datepicker__current-month,
+        .cal-dp-wrap .react-datepicker__day-name,
+        .cal-dp-wrap .react-datepicker-time__header { color: ${WHITE}; }
+        .cal-dp-wrap .react-datepicker__day { color: ${WHITE}; border-radius: 6px; }
+        .cal-dp-wrap .react-datepicker__day:hover { background: rgba(255,255,255,0.15); }
+        .cal-dp-wrap .react-datepicker__day--selected,
+        .cal-dp-wrap .react-datepicker__day--keyboard-selected { background: rgba(91,200,232,0.5); }
+        .cal-dp-wrap .react-datepicker__time-container { border-left: 1px solid ${MBORDER}; }
+        .cal-dp-wrap .react-datepicker__time { background: rgba(20,50,65,0.97); color: ${WHITE}; }
+        .cal-dp-wrap .react-datepicker__time-list-item { color: ${WHITE}; }
+        .cal-dp-wrap .react-datepicker__time-list-item:hover { background: rgba(255,255,255,0.15) !important; }
+        .cal-dp-wrap .react-datepicker__time-list-item--selected { background: rgba(91,200,232,0.5) !important; }
+        .cal-dp-wrap .react-datepicker__navigation-icon::before { border-color: ${WHITE60}; }
+        .cal-modal textarea::placeholder { color: ${WHITE40}; }
+        .cal-modal textarea:focus { outline: none; }
+        .cal-modal input::placeholder { color: ${WHITE40}; }
+      `}</style>
+
+      <div className="cal-modal" style={m.card} onMouseDown={e => e.stopPropagation()}>
+        {/* X button */}
+        <button style={m.closeBtn} onClick={onClose}>×</button>
+
+        {/* Title */}
+        <input
+          style={m.titleInput}
+          placeholder="What are you up to?"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          autoFocus
+        />
+        <div style={m.divider} />
+
+        {/* Type selector */}
+        <div style={m.typeRow}>
+          {TYPES.map(t => (
+            <button
+              key={t}
+              style={{
+                ...m.typeBtn,
+                border: taskType === t ? `1px solid ${MBORDER}` : '1px solid transparent',
+                color: taskType === t ? WHITE : WHITE60,
+              }}
+              onClick={() => setTaskType(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Date / time row */}
+        <div style={m.infoRow} onClick={() => setShowStartPicker(v => !v)}>
+          <ClockIcon />
+          <div style={m.infoText}>
+            <span style={m.infoMain}>{dateLabel}&nbsp;&nbsp;&nbsp;{timeLabel}</span>
+            <span style={m.infoSub}>Does not repeat</span>
+          </div>
+          <div className="cal-dp-wrap" style={m.pickerWrap} onClick={e => e.stopPropagation()}>
+            {showStartPicker && (
+              <DatePicker
+                ref={startPickerRef}
+                selected={startDate}
+                onChange={date => {
+                  if (date) {
+                    const diff = endDate - startDate;
+                    setStartDate(date);
+                    setEndDate(new Date(date.getTime() + diff));
+                  }
+                  setShowStartPicker(false);
+                }}
+                showTimeSelect
+                inline
+                timeIntervals={30}
+                dateFormat="MMMM d, yyyy h:mm aa"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Deadline row */}
+        <div style={m.infoRow} onClick={() => setShowDeadlinePicker(v => !v)}>
+          <TargetIcon />
+          <div style={m.infoText}>
+            <span style={{ ...m.infoMain, color: deadline ? WHITE : WHITE60 }}>
+              {deadlineLabel}
+            </span>
+          </div>
+          <div className="cal-dp-wrap" style={m.pickerWrap} onClick={e => e.stopPropagation()}>
+            {showDeadlinePicker && (
+              <DatePicker
+                ref={deadlinePickerRef}
+                selected={deadline}
+                onChange={date => { setDeadline(date); setShowDeadlinePicker(false); }}
+                inline
+                dateFormat="MMMM d, yyyy"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Category selector */}
+        {categories.length > 0 && (
+          <div style={m.catRow}>
+            {categories.map(({ label, color }) => (
+              <button
+                key={label}
+                style={{
+                  ...m.catPill,
+                  border: selectedCategory === label
+                    ? `1.5px solid ${color}`
+                    : '1.5px solid rgba(255,255,255,0.15)',
+                  background: selectedCategory === label
+                    ? color + '22'
+                    : 'rgba(255,255,255,0.06)',
+                  color: selectedCategory === label ? color : WHITE60,
+                }}
+                onClick={() => setSelectedCategory(v => v === label ? null : label)}
+              >
+                <span style={{ ...m.catDot, background: color }} />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Description */}
+        <textarea
+          style={m.textarea}
+          placeholder="Add description"
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+          rows={4}
+        />
+
+        {/* Add Task button */}
+        <div style={m.btnRow}>
+          <button style={m.addBtn} onClick={() => {
+            const cat = categories.find(c => c.label === selectedCategory);
+            onAddTask({ title, startDate, category: cat ?? null });
+            onClose();
+          }}>Add Task</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Calendar Page ─────────────────────────────────────────────────────────────
 export default function CalendarPage() {
-  const [weekOffset,    setWeekOffset]    = useState(0);
-  const [chatInput,     setChatInput]     = useState('');
-  const [msgs,          setMsgs]          = useState(INIT_CHAT);
-  const [categories,    setCategories]    = useState(INIT_CATEGORIES);
-  const [showAddInput,  setShowAddInput]  = useState(false);
-  const [newCatName,    setNewCatName]    = useState('');
-  const [hoveredCat,    setHoveredCat]    = useState(null);
+  const [weekOffset,   setWeekOffset]   = useState(0);
+  const [chatInput,    setChatInput]    = useState('');
+  const [msgs,         setMsgs]         = useState(INIT_CHAT);
+  const [categories,   setCategories]   = useState(INIT_CATEGORIES);
+  const [showAddInput, setShowAddInput] = useState(false);
+  const [newCatName,   setNewCatName]   = useState('');
+  const [newCatColor,  setNewCatColor]  = useState(CAT_COLORS[0]);
+  const [hoveredCat,   setHoveredCat]   = useState(null);
+  const [modalOpen,       setModalOpen]       = useState(false);
+  const [modalDate,       setModalDate]       = useState(null);
+  const [events,          setEvents]          = useState([]);
+  const [selectedFilters, setSelectedFilters] = useState(
+    () => new Set(INIT_CATEGORIES.map(c => c.label))
+  );
   const chatEndRef = useRef(null);
+
+  const openModal = (date = null) => { setModalDate(date); setModalOpen(true); };
+  const closeModal = () => setModalOpen(false);
+
+  const handleAddTask = ({ title, startDate, category }) => {
+    if (!title.trim()) return;
+    setEvents(prev => [...prev, {
+      title,
+      color: category?.color ?? TEAL,
+      categoryLabel: category?.label ?? null,
+      date: startDate,
+    }]);
+  };
+
+  const toggleFilter = label => {
+    setSelectedFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label); else next.add(label);
+      return next;
+    });
+  };
+
+  const allSelected = selectedFilters.size === categories.length && categories.length > 0;
+  const toggleAll = () => {
+    setSelectedFilters(allSelected
+      ? new Set()
+      : new Set(categories.map(c => c.label))
+    );
+  };
 
   const addCategory = () => {
     const name = newCatName.trim();
     if (!name) return;
-    const color = COLOR_ROTATION[categories.length % COLOR_ROTATION.length];
-    setCategories(prev => [...prev, { label: name, color, count: 0 }]);
+    setCategories(prev => [...prev, { label: name, color: newCatColor, count: 0 }]);
+    setSelectedFilters(prev => new Set([...prev, name]));
     setNewCatName('');
+    setNewCatColor(CAT_COLORS[0]);
     setShowAddInput(false);
   };
 
   const deleteCategory = label => {
     setCategories(prev => prev.filter(c => c.label !== label));
+    setSelectedFilters(prev => { const next = new Set(prev); next.delete(label); return next; });
   };
 
   const weekDates = getWeekDates(weekOffset);
   const todayISO  = new Date().toISOString().slice(0, 10);
+
+  const eventMap = {};
+  events.forEach(ev => {
+    if (ev.categoryLabel !== null && !selectedFilters.has(ev.categoryLabel)) return;
+    const d   = new Date(ev.date);
+    const iso = d.toISOString().slice(0, 10);
+    const di  = weekDates.findIndex(wd => wd.toISOString().slice(0, 10) === iso);
+    if (di === -1) return;
+    eventMap[`${di}-${d.getHours()}`] = { title: ev.title, color: ev.color };
+  });
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -95,6 +380,15 @@ export default function CalendarPage() {
 
   return (
     <Layout>
+      {modalOpen && (
+        <TaskModal
+          onClose={closeModal}
+          initialDate={modalDate}
+          categories={categories}
+          onAddTask={handleAddTask}
+        />
+      )}
+
       {/* ── WEEKLY CALENDAR ── */}
       <main style={s.calArea}>
         <div style={s.weekNav}>
@@ -138,11 +432,17 @@ export default function CalendarPage() {
             <div style={s.grid}>
               {HOURS.flatMap(hour => [
                 <div key={`t${hour}`} style={s.timeLabel}>{fmtHour(hour)}</div>,
-                ...weekDates.map((_, di) => {
-                  const ev = WEEK_EVENTS[`${di}-${hour}`];
+                ...weekDates.map((date, di) => {
+                  const ev = eventMap[`${di}-${hour}`];
+                  const slotDate = new Date(date);
+                  slotDate.setHours(hour, 0, 0, 0);
                   return (
-                    <div key={`c${di}-${hour}`} style={s.gridCell}>
-                      {ev && (
+                    <div
+                      key={`c${di}-${hour}`}
+                      style={s.gridCell}
+                      onClick={!ev ? () => openModal(slotDate) : undefined}
+                    >
+                      {ev ? (
                         <div
                           style={{
                             ...s.eventBlock,
@@ -152,6 +452,8 @@ export default function CalendarPage() {
                         >
                           <span style={{ ...s.eventText, color: ev.color }}>{ev.title}</span>
                         </div>
+                      ) : (
+                        <div style={s.emptyCellHint} className="empty-cell-hint" />
                       )}
                     </div>
                   );
@@ -164,29 +466,57 @@ export default function CalendarPage() {
 
       {/* ── RIGHT PANEL ── */}
       <aside style={s.rightPanel}>
+        {/* Add Task */}
+        <button style={s.addTaskYellow} onClick={() => openModal()}>+ Add Task</button>
+
         {/* Task Categories */}
         <div style={s.card}>
-          <div style={s.cardTitle}>Task Categories</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {categories.map(({ label, color, count }) => (
-              <div
-                key={label}
-                style={s.catRow}
-                onMouseEnter={() => setHoveredCat(label)}
-                onMouseLeave={() => setHoveredCat(null)}
-              >
-                <div style={{ ...s.catDot, background: color }} />
-                <span style={s.catLabel}>{label}</span>
-                <span style={{ ...s.catCount, color }}>{count}</span>
-                <button
-                  style={{ ...s.catDeleteBtn, opacity: hoveredCat === label ? 1 : 0 }}
-                  onClick={() => deleteCategory(label)}
-                >×</button>
-              </div>
-            ))}
+          <div style={{ ...s.cardTitle, justifyContent: 'space-between' }}>
+            <span>Task Categories</span>
+            <button
+              style={{
+                ...s.allBtn,
+                background: allSelected ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)',
+                color: allSelected ? '#fff' : 'rgba(255,255,255,0.5)',
+                border: allSelected ? '1px solid rgba(255,255,255,0.35)' : '1px solid rgba(255,255,255,0.15)',
+              }}
+              onClick={toggleAll}
+            >All</button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {categories.map(({ label, color, count }) => {
+              const active = selectedFilters.has(label);
+              return (
+                <div
+                  key={label}
+                  style={{
+                    ...s.catRow,
+                    background: active ? color + '22' : 'transparent',
+                    border: active ? `1px solid ${color}55` : '1px solid transparent',
+                    borderRadius: 7,
+                    padding: '4px 6px',
+                    margin: '0 -6px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s, border 0.15s',
+                  }}
+                  onClick={() => toggleFilter(label)}
+                  onMouseEnter={() => setHoveredCat(label)}
+                  onMouseLeave={() => setHoveredCat(null)}
+                >
+                  <div style={{ ...s.catDot, background: color }} />
+                  <span style={{ ...s.catLabel, color: active ? '#fff' : 'rgba(255,255,255,0.78)' }}>
+                    {label}
+                  </span>
+                  <button
+                    style={{ ...s.catDeleteBtn, opacity: hoveredCat === label ? 1 : 0 }}
+                    onClick={e => { e.stopPropagation(); deleteCategory(label); }}
+                  >×</button>
+                </div>
+              );
+            })}
           </div>
           {showAddInput && (
-            <div style={s.catInputRow}>
+            <div style={s.addCatForm}>
               <input
                 style={s.catInput}
                 placeholder="Category name"
@@ -198,13 +528,23 @@ export default function CalendarPage() {
                   if (e.key === 'Escape') { setShowAddInput(false); setNewCatName(''); }
                 }}
               />
-              <button style={s.catConfirmBtn} onClick={addCategory}>✓</button>
+              <div style={s.swatchRow}>
+                {CAT_COLORS.map(c => (
+                  <button
+                    key={c}
+                    style={{
+                      ...s.swatch,
+                      background: c,
+                      boxShadow: newCatColor === c ? `0 0 0 2px #fff` : 'none',
+                    }}
+                    onClick={() => setNewCatColor(c)}
+                  />
+                ))}
+              </div>
+              <button style={s.catConfirmBtn} onClick={addCategory}>✓ Add</button>
             </div>
           )}
-          <button
-            style={s.addTaskBtn}
-            onClick={() => setShowAddInput(v => !v)}
-          >
+          <button style={s.addTaskBtn} onClick={() => setShowAddInput(v => !v)}>
             + Add Category
           </button>
         </div>
@@ -241,13 +581,17 @@ export default function CalendarPage() {
           </div>
         </div>
       </aside>
+
+      <style>{`
+        .empty-cell-hint { display: none; }
+        [style*='gridCell']:hover .empty-cell-hint { display: block; }
+      `}</style>
     </Layout>
   );
 }
 
-/* ── Styles ── */
+/* ── Calendar styles ── */
 const s = {
-  /* Calendar main area */
   calArea: {
     flex: 1,
     display: 'flex',
@@ -368,6 +712,14 @@ const s = {
     borderBottom: `1px solid rgba(255,255,255,0.05)`,
     position: 'relative',
     padding: 2,
+    cursor: 'pointer',
+  },
+  emptyCellHint: {
+    position: 'absolute',
+    inset: 2,
+    borderRadius: 4,
+    border: `1px dashed rgba(91,200,232,0.3)`,
+    pointerEvents: 'none',
   },
   eventBlock: {
     borderRadius: 4,
@@ -384,8 +736,19 @@ const s = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-
-  /* Right panel */
+  addTaskYellow: {
+    width: '100%',
+    padding: '8px',
+    borderRadius: 8,
+    background: 'rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    color: '#fff',
+    fontFamily: GEO,
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
   rightPanel: {
     width: 232,
     flexShrink: 0,
@@ -417,6 +780,15 @@ const s = {
     alignItems: 'center',
     gap: 5,
     marginBottom: 2,
+  },
+  allBtn: {
+    padding: '2px 9px',
+    borderRadius: 10,
+    fontFamily: GEO,
+    fontSize: 11,
+    fontWeight: 500,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
   },
   catRow: {
     display: 'flex',
@@ -463,10 +835,24 @@ const s = {
     transition: 'opacity 0.15s',
     flexShrink: 0,
   },
-  catInputRow: {
+  addCatForm: {
     display: 'flex',
-    gap: 6,
-    alignItems: 'center',
+    flexDirection: 'column',
+    gap: 8,
+  },
+  swatchRow: {
+    display: 'flex',
+    gap: 7,
+  },
+  swatch: {
+    width: 20,
+    height: 20,
+    borderRadius: '50%',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
+    transition: 'box-shadow 0.12s',
   },
   catInput: {
     flex: 1,
@@ -481,8 +867,9 @@ const s = {
     minWidth: 0,
   },
   catConfirmBtn: {
-    width: 26,
-    height: 26,
+    padding: '5px 10px',
+    height: 'auto',
+    width: 'fit-content',
     borderRadius: 6,
     background: 'rgba(91,200,232,0.25)',
     border: `1px solid rgba(91,200,232,0.5)`,
@@ -554,5 +941,169 @@ const s = {
     justifyContent: 'center',
     flexShrink: 0,
     padding: 0,
+  },
+};
+
+/* ── Modal styles ── */
+const m = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.55)',
+    backdropFilter: 'blur(4px)',
+    WebkitBackdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  card: {
+    position: 'relative',
+    width: 'min(90vw, 640px)',
+    maxHeight: '90vh',
+    overflowY: 'auto',
+    background: WHITE15,
+    backdropFilter: 'blur(24px)',
+    WebkitBackdropFilter: 'blur(24px)',
+    borderRadius: 24,
+    border: `1px solid ${MBORDER}`,
+    padding: '48px 52px 40px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16,
+    fontFamily: GEO,
+    color: WHITE,
+  },
+  closeBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 18,
+    background: 'rgba(255,255,255,0.1)',
+    border: 'none',
+    borderRadius: '50%',
+    width: 28,
+    height: 28,
+    fontSize: 18,
+    lineHeight: 1,
+    color: 'rgba(255,255,255,0.7)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+  },
+  titleInput: {
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    fontFamily: GEO,
+    fontSize: 22,
+    fontWeight: 400,
+    color: WHITE,
+    width: '100%',
+    padding: 0,
+  },
+  divider: {
+    height: 1,
+    background: 'rgba(255,255,255,0.35)',
+    marginTop: -4,
+  },
+  typeRow: {
+    display: 'flex',
+    gap: 8,
+    alignItems: 'center',
+  },
+  typeBtn: {
+    background: 'transparent',
+    borderRadius: 20,
+    padding: '5px 14px',
+    fontFamily: GEO,
+    fontSize: 14,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    fontWeight: 400,
+  },
+  infoRow: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 12,
+    cursor: 'pointer',
+    position: 'relative',
+  },
+  infoText: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  infoMain: {
+    fontSize: 15,
+    fontWeight: 400,
+    color: WHITE,
+  },
+  infoSub: {
+    fontSize: 12,
+    color: WHITE60,
+  },
+  pickerWrap: {
+    position: 'absolute',
+    top: 30,
+    left: 0,
+    zIndex: 200,
+  },
+  textarea: {
+    background: WHITE08,
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+    border: `1px solid ${MBORDER}`,
+    borderRadius: 12,
+    padding: '14px 16px',
+    fontFamily: GEO,
+    fontSize: 14,
+    color: WHITE,
+    resize: 'none',
+    width: '100%',
+    boxSizing: 'border-box',
+    lineHeight: 1.5,
+  },
+  catRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  catPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '5px 12px',
+    borderRadius: 20,
+    fontFamily: GEO,
+    fontSize: 13,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  catDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    flexShrink: 0,
+    display: 'inline-block',
+  },
+  btnRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+  },
+  addBtn: {
+    background: '#FED430',
+    border: 'none',
+    color: '#160a00',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'opacity 0.15s',
+    borderRadius: 20,
+    height: 'auto',
+    padding: '8px 24px',
+    fontSize: 14,
+    fontFamily: GEO,
   },
 };
