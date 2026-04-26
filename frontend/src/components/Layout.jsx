@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useCurrentUser } from '../auth';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import beeLogo  from '../assets/Honey Bee Logo.png';
@@ -34,11 +35,6 @@ const NAV_SECTIONS = [
   },
 ];
 
-const CATEGORY_TAGS = [
-  { label: 'Work',     color: TEAL      },
-  { label: 'Personal', color: '#7BDE8A' },
-  { label: 'Study',    color: '#E8C85B' },
-];
 
 function fmtTimer(s) {
   const hh = String(Math.floor(s / 3600)).padStart(2, '0');
@@ -47,17 +43,31 @@ function fmtTimer(s) {
   return `${hh}:${mm}:${ss}`;
 }
 
+function getInitials(name) {
+  if (!name) return '?';
+  return name.trim().split(/\s+/).map(w => w[0].toUpperCase()).slice(0, 2).join('');
+}
+
 export default function Layout({ children }) {
   const navigate  = useNavigate();
   const { pathname } = useLocation();
+  const currentUser = useCurrentUser();
+  const displayName = currentUser?.displayName || currentUser?.name || '';
+  const initials = getInitials(displayName);
 
-  const [workingOn,   setWorkingOn]   = useState('');
-  const [selectedTag, setSelectedTag] = useState('Work');
-  const [timerSecs,   setTimerSecs]   = useState(0);
+  const [workingOn,  setWorkingOn]  = useState('');
+  const [timerSecs,  setTimerSecs]  = useState(0);
   const [running,     setRunning]     = useState(false);
   const intervalRef = useRef(null);
 
   useEffect(() => () => clearInterval(intervalRef.current), []);
+
+  useEffect(() => {
+    if (running && timerSecs > 0 && timerSecs % 60 === 0) {
+      const prev = parseInt(localStorage.getItem('honeybee_xp') || '0', 10);
+      localStorage.setItem('honeybee_xp', prev + 1);
+    }
+  }, [timerSecs, running]);
 
   const toggleTimer = () => {
     if (running) {
@@ -89,8 +99,8 @@ export default function Layout({ children }) {
         {/* ── TOP BAR ── */}
         <header style={s.topBar}>
           <div style={s.profileArea}>
-            <div style={s.avatar}>JK</div>
-            <span style={s.profileName}>Josh Kwon</span>
+            <div style={s.avatar}>{initials}</div>
+            <span style={s.profileName}>{displayName || 'User'}</span>
           </div>
 
           <div style={s.workWrap}>
@@ -103,27 +113,14 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div style={s.tagRow}>
-            {CATEGORY_TAGS.map(({ label, color }) => (
-              <button
-                key={label}
-                style={{
-                  ...s.tagBtn,
-                  border: `1px solid ${color}`,
-                  background: selectedTag === label ? color + '2A' : 'transparent',
-                  color: selectedTag === label ? color : 'rgba(255,255,255,0.6)',
-                }}
-                onClick={() => setSelectedTag(label)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
           <div style={s.timerBox} onClick={toggleTimer} title={running ? 'Pause' : 'Start'}>
             <span style={s.timerIcon}>{running ? '⏸' : '▶'}</span>
             <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
           </div>
+
+          <button style={s.doneBtn} onClick={() => navigate('/task-completed')} title="Mark task complete">
+            ✓
+          </button>
         </header>
 
         {/* ── BODY ── */}
@@ -271,20 +268,6 @@ const s = {
     color: 'rgba(255,255,255,0.9)',
     minWidth: 0,
   },
-  tagRow: {
-    display: 'flex',
-    gap: 7,
-    flexShrink: 0,
-  },
-  tagBtn: {
-    padding: '5px 13px',
-    borderRadius: 20,
-    fontFamily: GEO,
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-  },
   timerBox: {
     display: 'flex',
     alignItems: 'center',
@@ -307,6 +290,21 @@ const s = {
     color: TEAL,
     fontWeight: 700,
     letterSpacing: 1.5,
+  },
+  doneBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 36,
+    padding: '0 14px',
+    borderRadius: 20,
+    background: 'rgba(255,255,255,0.09)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    color: '#fff',
+    fontSize: 16,
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'background 0.15s',
   },
 
   /* Body */
