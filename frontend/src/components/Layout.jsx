@@ -30,11 +30,7 @@ const NAV_SECTIONS = [
     title: 'MANAGE',
     items: [
       { label: 'Tasks',    route: '/tasks'     },
-<<<<<<< HEAD
       { label: 'Log Out', route: '/dashboard' },
-=======
-      { label: 'Log Out', route: '/landing' },
->>>>>>> 04b0f6c6c5616fdade133111440abe5291658358
     ],
   },
 ];
@@ -59,28 +55,65 @@ export default function Layout({ children }) {
   const displayName = currentUser?.displayName || currentUser?.name || '';
   const initials = getInitials(displayName);
 
-  const [workingOn,  setWorkingOn]  = useState('');
-  const [timerSecs,  setTimerSecs]  = useState(0);
-  const [running,     setRunning]     = useState(false);
-  const intervalRef = useRef(null);
-
-  useEffect(() => () => clearInterval(intervalRef.current), []);
+  const [workingOn, setWorkingOn] = useState('');
+  const [navMs,     setNavMs]     = useState(0);
+  const [navRunning, setNavRunning] = useState(false);
+  const xpRef = useRef(0);
 
   useEffect(() => {
-    if (running && timerSecs > 0 && timerSecs % 60 === 0) {
-      const prev = parseInt(localStorage.getItem('honeybee_xp') || '0', 10);
-      localStorage.setItem('honeybee_xp', prev + 1);
+    function readTimer() {
+      try {
+        const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null');
+        if (!saved) { setNavMs(0); setNavRunning(false); return; }
+        const ms = saved.isRunning && saved.startTime
+          ? saved.elapsed + (Date.now() - saved.startTime)
+          : (saved.elapsed ?? 0);
+        setNavMs(ms);
+        setNavRunning(!!saved.isRunning);
+
+        // Award 1 XP per newly completed minute while running
+        if (saved.isRunning) {
+          const mins = Math.floor(ms / 60000);
+          if (mins > xpRef.current) {
+            const gained = mins - xpRef.current;
+            xpRef.current = mins;
+            const prev = parseInt(localStorage.getItem('honeybee_xp') || '0', 10);
+            localStorage.setItem('honeybee_xp', String(prev + gained));
+          }
+        }
+      } catch {}
     }
-  }, [timerSecs, running]);
+    readTimer();
+    const id = setInterval(readTimer, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const toggleTimer = () => {
-    if (running) {
-      clearInterval(intervalRef.current);
-      setRunning(false);
-    } else {
-      intervalRef.current = setInterval(() => setTimerSecs(s => s + 1), 1000);
-      setRunning(true);
-    }
+    try {
+      const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null') ?? { elapsed: 0, isRunning: false, startTime: null };
+      if (saved.isRunning) {
+        const newElapsed = saved.elapsed + (Date.now() - saved.startTime);
+        localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: newElapsed }));
+      } else {
+        const now = Date.now();
+        localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: true, startTime: now, elapsed: saved.elapsed ?? 0 }));
+      }
+    } catch {}
+  };
+
+  const stopTimer = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null');
+      if (!saved) return;
+      const finalElapsed = saved.isRunning && saved.startTime
+        ? saved.elapsed + (Date.now() - saved.startTime)
+        : (saved.elapsed ?? 0);
+      localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: finalElapsed }));
+    } catch {}
+  };
+
+  const resetTimer = () => {
+    localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: 0 }));
   };
 
   return (
@@ -117,12 +150,24 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div style={s.timerBox} onClick={toggleTimer} title={running ? 'Pause' : 'Start'}>
-            <span style={s.timerIcon}>{running ? '⏸' : '▶'}</span>
-            <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={s.timerBox} onClick={toggleTimer} title={navRunning ? 'Pause' : 'Start'}>
+              <span style={s.timerIcon}>{navRunning ? '⏸' : '▶'}</span>
+              <span style={s.timerTime}>{fmtTimer(Math.floor(navMs / 1000))}</span>
+            </div>
+            <button
+              style={s.resetBtn}
+              onClick={resetTimer}
+              title="Reset timer"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
 
-          <button style={s.doneBtn} onClick={() => navigate('/task-completed')} title="Mark task complete">
+          <button style={s.doneBtn} onClick={() => { stopTimer(); navigate('/task-completed'); }} title="Mark task complete">
             ✓
           </button>
         </header>
@@ -294,6 +339,20 @@ const s = {
     color: TEAL,
     fontWeight: 700,
     letterSpacing: 1.5,
+  },
+  resetBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'background 0.15s, color 0.15s',
   },
   doneBtn: {
     display: 'flex',
