@@ -93,8 +93,9 @@ export default function PersonalDashboard() {
   const userName = currentUser?.displayName || currentUser?.name || 'User';
   const userInitials = getInitials(userName);
 
+  const bioKey = currentUser?.email ? `honeybee_bio_${currentUser.email}` : null;
   const [xp, setXp] = useState(() => parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
-  const [bio, setBio] = useState(() => localStorage.getItem('honeybee_bio') ?? STATIC_USER.bio);
+  const [bio, setBio] = useState('');
   const [pageSize, setPageSize] = useState(5);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
 
@@ -104,6 +105,10 @@ export default function PersonalDashboard() {
     }, 1000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (bioKey) setBio(localStorage.getItem(bioKey) ?? '');
+  }, [bioKey]);
 
   const visibleTasks = TASKS.slice(0, pageSize);
 
@@ -130,10 +135,17 @@ export default function PersonalDashboard() {
           <div style={s.xpPill}>Experience Level: {xp.toLocaleString()}</div>
 
           {/* Bio */}
+          <style>{`.bio-pill::placeholder { color: rgba(255,255,255,0.3); }`}</style>
           <textarea
+            className="bio-pill"
             style={s.bioPill}
+            placeholder="Write your note or inspiration for the day..."
             value={bio}
-            onChange={e => { setBio(e.target.value); localStorage.setItem('honeybee_bio', e.target.value); }}
+            onChange={e => {
+              const val = e.target.value;
+              setBio(val);
+              if (bioKey) localStorage.setItem(bioKey, val);
+            }}
           />
         </aside>
 

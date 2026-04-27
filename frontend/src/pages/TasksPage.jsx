@@ -132,23 +132,6 @@ export default function TasksPage() {
           />
           <div style={s.divider} />
 
-          {/* Type selector */}
-          <div style={s.typeRow}>
-            {TYPES.map(t => (
-              <button
-                key={t}
-                style={{
-                  ...s.typeBtn,
-                  border: taskType === t ? `1px solid ${BORDER}` : '1px solid transparent',
-                  color: taskType === t ? WHITE : WHITE60,
-                }}
-                onClick={() => setTaskType(t)}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
           {/* Date/time row */}
           <div
             style={s.infoRow}
