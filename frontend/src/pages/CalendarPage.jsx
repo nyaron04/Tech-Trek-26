@@ -367,15 +367,35 @@ export default function CalendarPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [msgs]);
 
-  const sendChat = () => {
+  const sendChat = async () => {
     if (!chatInput.trim()) return;
+
     const text = chatInput;
+
     setMsgs(prev => [
       ...prev,
       { from: 'user', text },
-      { from: 'bot', text: "Got it! I'll update your schedule right away." },
+      { from: 'bot', text: "Thinking..." },
     ]);
+
     setChatInput('');
+
+    try {
+      const userId = "bdcb8a58-e7d8-4e2d-9cd3-b9598fd88ddf"; // temporary test user
+
+      const response = await fetch(`http://localhost:8080/ai/schedule/${userId}`);
+      const data = await response.text();
+
+      setMsgs(prev => [
+        ...prev.slice(0, -1),
+        { from: 'bot', text: data },
+      ]);
+    } catch (error) {
+      setMsgs(prev => [
+        ...prev.slice(0, -1),
+        { from: 'bot', text: "Something went wrong. Please try again." },
+      ]);
+    }
   };
 
   return (
