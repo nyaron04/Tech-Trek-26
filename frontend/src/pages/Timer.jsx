@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import plantsImg from '../assets/Sunflower Growth.png';
+import { authFetch, getUserId } from '../auth';
 
 const GEO = "'Georama', 'Inter', sans-serif";
 
@@ -16,24 +17,90 @@ function fmtTime(s) {
 export default function Timer() {
   const navigate  = useNavigate();
   const location  = useLocation();
+  const taskId    = location.state?.taskId || null;
   const taskTitle = location.state?.taskTitle || 'Title of Task';
 
   const [secs,    setSecs]    = useState(0);
   const [running, setRunning] = useState(false);
+  const [timerId, setTimerId] = useState(null);
+  const [error,   setError]   = useState('');
+  const [busy,    setBusy]    = useState(false);
   const intervalRef = useRef(null);
 
-  const toggle = () => {
-    if (running) {
-      clearInterval(intervalRef.current);
-      setRunning(false);
-    } else {
-      intervalRef.current = setInterval(() => setSecs(s => s + 1), 1000);
-      setRunning(true);
+  const canStart = !!taskId && !!getUserId();
+
+  const startTimer = async () => {
+    const userId = getUserId();
+    if (!userId) {
+      setError('You need to be signed in to start the timer.');
+      return null;
+    }
+    if (!taskId) {
+      setError('Pick a task first — open Tasks and click "Start timer".');
+      return null;
+    }
+
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`http://localhost:8080/api/timer/start`, {
+        method: 'POST',
+        body: JSON.stringify({ userId, taskId }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Start failed (${res.status})`);
+      }
+      const saved = await res.json();
+      setTimerId(saved.id);
+      return saved.id;
+    } catch (e) {
+      setError(e?.message || 'Could not start the timer.');
+      return null;
+    } finally {
+      setBusy(false);
     }
   };
 
-  const finish = () => {
+  const endTimer = async (idOverride) => {
+    const idToStop = idOverride || timerId;
+    if (!idToStop) return;
+    try {
+      const res = await authFetch(`http://localhost:8080/api/timer/stop/${idToStop}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Stop failed (${res.status})`);
+      }
+      setTimerId(null);
+    } catch (e) {
+      setError(e?.message || 'Could not stop the timer.');
+    }
+  };
+
+  const toggle = async () => {
+    if (busy) return;
+
+    if (running) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+      setRunning(false);
+      await endTimer();
+      return;
+    }
+
+    const newId = await startTimer();
+    if (!newId) return; // backend failed; don't tick locally
+    intervalRef.current = setInterval(() => setSecs(s => s + 1), 1000);
+    setRunning(true);
+  };
+
+  const finish = async () => {
     clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    setRunning(false);
+    await endTimer();
     navigate('/task-completed');
   };
 
@@ -61,10 +128,29 @@ export default function Timer() {
       <div style={s.center}>
         <h2 style={s.taskTitle}>{taskTitle}</h2>
         <div style={s.timeDisplay}>{fmtTime(secs)}</div>
-        <button style={s.startBtn} onClick={toggle}>
+        <button
+          style={{
+            ...s.startBtn,
+            opacity: canStart && !busy ? 1 : 0.55,
+            cursor: busy ? 'wait' : (canStart ? 'pointer' : 'not-allowed'),
+          }}
+          onClick={toggle}
+          disabled={!canStart || busy}
+          title={!canStart ? 'Pick a task from the Tasks page first' : undefined}
+        >
           <span style={s.playIcon}>{running ? '⏸' : '▶'}</span>
-          {running ? ' Pause Timer' : ' Start Timer'}
+          {busy ? ' …' : running ? ' Pause Timer' : ' Start Timer'}
         </button>
+
+        {!taskId && (
+          <p style={s.hint}>
+            No task selected.{' '}
+            <button style={s.linkBtn} onClick={() => navigate('/tasks')}>
+              Pick one from Tasks
+            </button>
+          </p>
+        )}
+        {error && <p style={s.errorText}>{error}</p>}
       </div>
     </div>
   );
@@ -191,5 +277,35 @@ const s = {
 
   playIcon: {
     fontSize: 18,
+  },
+
+  hint: {
+    marginTop: 12,
+    fontFamily: GEO,
+    fontSize: 14,
+    color: '#fff',
+    textShadow: '0 1px 4px rgba(0,0,0,0.35)',
+  },
+
+  linkBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#FED430',
+    fontFamily: GEO,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textDecoration: 'underline',
+    padding: 0,
+  },
+
+  errorText: {
+    marginTop: 12,
+    fontFamily: GEO,
+    fontSize: 14,
+    color: '#ffb4b4',
+    textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+    maxWidth: 480,
+    textAlign: 'center',
   },
 };
