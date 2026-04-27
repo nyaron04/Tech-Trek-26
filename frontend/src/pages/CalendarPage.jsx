@@ -31,7 +31,7 @@ function getWeekDates(offset = 0) {
   });
 }
 
-const HOURS      = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
+const HOURS      = Array.from({ length: 24 }, (_, i) => i); // 12 AM – 11 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const INIT_CATEGORIES = [
@@ -385,7 +385,10 @@ export default function CalendarPage() {
   const [modalOpen,       setModalOpen]       = useState(false);
   const [modalDate,       setModalDate]       = useState(null);
   const [editData,        setEditData]        = useState(null);
-  const [events,          setEvents]          = useState([]);
+  const [events,          setEvents]          = useState(() => {
+    try { return JSON.parse(localStorage.getItem('honeybee_tasks') || '[]'); }
+    catch { return []; }
+  });
   const [popup,           setPopup]           = useState(null); // { eventId, x, y }
   const [selectedFilters, setSelectedFilters] = useState(
     () => new Set(INIT_CATEGORIES.map(c => c.label))
@@ -426,9 +429,57 @@ export default function CalendarPage() {
     }
   };
 
-  const deleteEvent      = id => setEvents(prev => prev.filter(e => e.id !== id));
-  const completeEvent   = id => setEvents(prev => prev.map(e => e.id === id ? { ...e, completed: true }  : e));
-  const uncompleteEvent = id => setEvents(prev => prev.map(e => e.id === id ? { ...e, completed: false } : e));
+  const deleteEvent = id => {
+    setEvents(prev => {
+      const ev = prev.find(e => e.id === id);
+      if (ev) {
+        try {
+          const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+          localStorage.setItem('completedTasks', JSON.stringify(
+            existing.filter(t => t.taskName !== ev.title)
+          ));
+        } catch {}
+      }
+      return prev.filter(e => e.id !== id);
+    });
+  };
+
+  const completeEvent = id => {
+    setEvents(prev => {
+      const next = prev.map(e => e.id === id ? { ...e, completed: true } : e);
+      const ev = next.find(e => e.id === id);
+      if (ev) {
+        const entry = {
+          taskName:      ev.title,
+          dateCompleted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          timeSpent:     '—',
+          taskCategory:  ev.categoryLabel ?? 'Uncategorized',
+        };
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        const alreadyExists = existing.some(t => t.taskName === entry.taskName && t.dateCompleted === entry.dateCompleted);
+        if (!alreadyExists) {
+          localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
+        }
+      }
+      return next;
+    });
+  };
+
+  const uncompleteEvent = id => {
+    setEvents(prev => {
+      const ev = prev.find(e => e.id === id);
+      if (ev) {
+        const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        try {
+          const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+          localStorage.setItem('completedTasks', JSON.stringify(
+            existing.filter(t => !(t.taskName === ev.title && t.dateCompleted === dateCompleted))
+          ));
+        } catch {}
+      }
+      return prev.map(e => e.id === id ? { ...e, completed: false } : e);
+    });
+  };
 
   const toggleFilter = label => {
     setSelectedFilters(prev => {
@@ -473,6 +524,10 @@ export default function CalendarPage() {
     if (di === -1) return;
     eventMap[`${di}-${d.getHours()}`] = { id: ev.id, title: ev.title, color: ev.color, completed: ev.completed };
   });
+
+  useEffect(() => {
+    localStorage.setItem('honeybee_tasks', JSON.stringify(events));
+  }, [events]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
