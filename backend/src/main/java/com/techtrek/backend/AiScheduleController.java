@@ -1,5 +1,6 @@
 package com.techtrek.backend;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -96,6 +97,11 @@ public class AiScheduleController {
                 - If timer history is unavailable, default to 60 minutes.
                 - Never create a block shorter than 15 minutes.
                 - Prefer splitting blocks longer than 2 hours into smaller sessions.
+                - Use TIMER ENTRIES to estimate how long similar tasks usually take.
+                - If the user asks for a task/category and does not specify a duration, calculate a reasonable duration from similar timer entries.
+                - Mention the estimate in the message, for example: "Based on your past timer data, this usually takes about 2 hours."
+                - If there is no relevant timer history, default to 60 minutes.
+                - If the user specifies an exact duration, use the user's duration instead of timer history.
                 """;
 
         return geminiService.generateRecommendation(prompt);
@@ -128,9 +134,13 @@ public class AiScheduleController {
         return sb.toString();
     }
 
-    private String buildPrompt(List<Task> tasks, List<TimerEntry> timerEntries) {
+    private String buildPrompt(List<Task> tasks, List<TimerEntry> timerEntries){
         StringBuilder prompt = new StringBuilder();
 
+        LocalDate today = LocalDate.now();
+        LocalDate tomorrow = today.plusDays(1);
+
+        prompt.append("Return all scheduled times in ISO format (YYYY-MM-DDTHH:MM:SS).\n\n");
         prompt.append("You are a productivity scheduling assistant.\n");
         prompt.append("Use the user's recent task and timer history to help schedule their time.\n");
         prompt.append("Focus on creating actionable scheduling suggestions.\n\n");
@@ -152,7 +162,17 @@ public class AiScheduleController {
             prompt.append("No timer entries found.\n");
         } else {
             for (TimerEntry timer : timerEntries) {
-                prompt.append("- Task ID: ").append(timer.getTaskId()).append("\n");
+                String taskTitle = "Unknown task";
+
+                for (Task task : tasks) {
+                    if (task.getId().equals(timer.getTaskId())) {
+                        taskTitle = task.getTitle();
+                        break;
+                    }
+                }
+
+                prompt.append("- Task Title: ").append(taskTitle).append("\n");
+                prompt.append("  Task ID: ").append(timer.getTaskId()).append("\n");
                 prompt.append("  Start Time: ").append(timer.getStartTime()).append("\n");
                 prompt.append("  End Time: ").append(timer.getEndTime()).append("\n");
                 prompt.append("  Duration Seconds: ").append(timer.getDurationSeconds()).append("\n");
