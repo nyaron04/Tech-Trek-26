@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import Layout from '../components/Layout';
+import { getUserId, authFetch } from '../auth';
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -96,9 +97,23 @@ export default function CalendarPage() {
     setChatInput('');
 
     try {
-      const userId = "bdcb8a58-e7d8-4e2d-9cd3-b9598fd88ddf"; // temporary test user
+      const userId = getUserId();
 
-      const response = await fetch(`http://localhost:8080/ai/schedule/${userId}`);
+      if (!userId) {
+        throw new Error("No logged-in user found.");
+      }
+
+      const response = await authFetch("http://localhost:8080/ai/schedule/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          message: text,
+        }),
+      });
+
       const data = await response.text();
 
       setMsgs(prev => [
