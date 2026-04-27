@@ -4,7 +4,9 @@ import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
 import { yellowBtn } from '../styles/theme';
-import { authFetch, getUserId } from '../auth';
+import { authFetch, getUserId, __internal } from '../auth';
+
+const API_BASE = __internal.API_BASE;
 
 const GEO = "'Georama', 'Inter', sans-serif";
 const WHITE = '#fff';
@@ -15,6 +17,9 @@ const WHITE08 = 'rgba(255,255,255,0.08)';
 const BORDER = 'rgba(255,255,255,0.25)';
 
 const TYPES = ['Task', 'Project', 'Homework'];
+
+// Color palette assigned to new categories on a round-robin basis.
+const CAT_COLORS = ['#5BC8E8', '#FED430', '#7BDE8A', '#E89C5B', '#C85BE8', '#FF8A8A'];
 
 function ClockIcon() {
   return (
@@ -89,6 +94,12 @@ export default function TasksPage() {
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState(null);
+  const [showNewCatInput, setShowNewCatInput] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [creatingCat, setCreatingCat] = useState(false);
+
   const dateLabel = fmtDate(startDate);
   const timeLabel = `${fmtTime(startDate)} – ${fmtTime(endDate)}`;
   const deadlineLabel = deadline ? fmtDate(deadline) : 'Add deadline';
@@ -102,7 +113,7 @@ export default function TasksPage() {
     }
     setTasksError('');
     try {
-      const res = await authFetch(`http://localhost:8080/tasks`);
+      const res = await authFetch(`${API_BASE}/tasks`);
       if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
       const all = await res.json();
       setTasks(all.filter(t => t.userId === userId));
@@ -111,9 +122,70 @@ export default function TasksPage() {
     }
   }, []);
 
+  const loadCategories = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      setCategories([]);
+      return;
+    }
+    try {
+      const res = await authFetch(`${API_BASE}/categories?userId=${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Failed to load categories (${res.status})`);
+      const list = await res.json();
+      setCategories(list);
+      setSelectedCategoryId(prev => {
+        if (prev && list.some(c => c.id === prev)) return prev;
+        return list[0]?.id ?? null;
+      });
+    } catch (e) {
+      // Non-fatal: form will warn when the user tries to submit.
+      console.error('loadCategories failed:', e);
+    }
+  }, []);
+
   useEffect(() => {
     loadTasks();
-  }, [loadTasks]);
+    loadCategories();
+  }, [loadTasks, loadCategories]);
+
+  async function handleCreateCategory() {
+    const userId = getUserId();
+    if (!userId) {
+      setFormError('Sign in to create a category.');
+      return;
+    }
+    const name = newCatName.trim();
+    if (!name) return;
+
+    setCreatingCat(true);
+    setFormError('');
+    try {
+      const res = await authFetch(`${API_BASE}/categories`, {
+        method: 'POST',
+        body: JSON.stringify({
+          userId,
+          name,
+          color: CAT_COLORS[categories.length % CAT_COLORS.length],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Create category failed (${res.status})`);
+      }
+      const saved = await res.json();
+      setCategories(prev => {
+        if (prev.some(c => c.id === saved.id)) return prev;
+        return [...prev, saved];
+      });
+      setSelectedCategoryId(saved.id);
+      setNewCatName('');
+      setShowNewCatInput(false);
+    } catch (e) {
+      setFormError(e?.message || 'Could not create category.');
+    } finally {
+      setCreatingCat(false);
+    }
+  }
 
   async function handleAddTask() {
     const userId = getUserId();
@@ -125,18 +197,20 @@ export default function TasksPage() {
       setFormError('Title is required.');
       return;
     }
+    if (!selectedCategoryId) {
+      setFormError('Pick a category (or add one with "+ New") before saving.');
+      return;
+    }
     setFormError('');
     setSubmitting(true);
     try {
-      const res = await authFetch(`http://localhost:8080/tasks`, {
+      const res = await authFetch(`${API_BASE}/tasks`, {
         method: 'POST',
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim(),
           status: 'not completed',
-          categoryId: (typeof crypto !== 'undefined' && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : '00000000-0000-0000-0000-000000000000',
+          categoryId: selectedCategoryId,
           userId,
           type: taskType.toLowerCase(),
         }),
@@ -153,6 +227,10 @@ export default function TasksPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function categoryById(id) {
+    return categories.find(c => c.id === id);
   }
 
   function startTimerFor(task) {
@@ -207,6 +285,74 @@ export default function TasksPage() {
             onChange={e => setTitle(e.target.value)}
           />
           <div style={s.divider} />
+
+          {/* Category picker */}
+          <div style={s.catRow}>
+            <span style={s.catLabel}>Category</span>
+            <div style={s.catPills}>
+              {categories.map(cat => {
+                const active = cat.id === selectedCategoryId;
+                const color = cat.color || '#5BC8E8';
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedCategoryId(cat.id)}
+                    style={{
+                      ...s.catPill,
+                      background: active ? `${color}33` : 'transparent',
+                      border: `1px solid ${active ? color : BORDER}`,
+                      color: active ? WHITE : WHITE60,
+                    }}
+                  >
+                    <span style={{ ...s.catDot, background: color }} />
+                    {cat.name}
+                  </button>
+                );
+              })}
+
+              {showNewCatInput ? (
+                <span style={s.newCatWrap}>
+                  <input
+                    autoFocus
+                    value={newCatName}
+                    onChange={e => setNewCatName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') handleCreateCategory();
+                      if (e.key === 'Escape') { setShowNewCatInput(false); setNewCatName(''); }
+                    }}
+                    placeholder="New category"
+                    style={s.newCatInput}
+                    disabled={creatingCat}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCreateCategory}
+                    style={s.newCatSave}
+                    disabled={creatingCat || !newCatName.trim()}
+                  >
+                    {creatingCat ? '…' : 'Add'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowNewCatInput(false); setNewCatName(''); }}
+                    style={s.newCatCancel}
+                    disabled={creatingCat}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowNewCatInput(true)}
+                  style={s.addCatBtn}
+                >
+                  + New
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Date/time row */}
           <div
@@ -311,26 +457,36 @@ export default function TasksPage() {
             <p style={s.emptyText}>No tasks yet — create one above.</p>
           )}
 
-          {tasks.map(task => (
-            <div key={task.id} style={s.taskRow}>
-              <div style={s.taskInfo}>
-                <span style={s.taskTitleText}>{task.title}</span>
-                {task.description && (
-                  <span style={s.taskMeta}>{task.description}</span>
-                )}
-                <span style={s.taskMeta}>
-                  {task.type} · {task.status}
-                </span>
+          {tasks.map(task => {
+            const cat = categoryById(task.categoryId);
+            const catColor = cat?.color || '#5BC8E8';
+            return (
+              <div key={task.id} style={s.taskRow}>
+                <div style={s.taskInfo}>
+                  <span style={s.taskTitleText}>{task.title}</span>
+                  {task.description && (
+                    <span style={s.taskMeta}>{task.description}</span>
+                  )}
+                  <span style={s.taskMetaLine}>
+                    {cat && (
+                      <span style={{ ...s.taskCatChip, background: `${catColor}33`, color: catColor, borderColor: `${catColor}88` }}>
+                        <span style={{ ...s.catDot, background: catColor }} />
+                        {cat.name}
+                      </span>
+                    )}
+                    <span style={s.taskMeta}>{task.type} · {task.status}</span>
+                  </span>
+                </div>
+                <button
+                  style={s.startTimerBtn}
+                  onClick={() => startTimerFor(task)}
+                  type="button"
+                >
+                  ▶ Start timer
+                </button>
               </div>
-              <button
-                style={s.startTimerBtn}
-                onClick={() => startTimerFor(task)}
-                type="button"
-              >
-                ▶ Start timer
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </main>
     </Layout>
@@ -470,6 +626,111 @@ const s = {
     fontSize: 13,
     color: '#ffb4b4',
     lineHeight: 1.4,
+  },
+  catRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  catLabel: {
+    fontFamily: GEO,
+    fontSize: 11,
+    fontWeight: 600,
+    letterSpacing: 1.2,
+    color: WHITE60,
+    textTransform: 'uppercase',
+  },
+  catPills: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
+  catPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'transparent',
+    borderRadius: 20,
+    padding: '5px 12px',
+    fontFamily: GEO,
+    fontSize: 13,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+  },
+  catDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  addCatBtn: {
+    background: 'transparent',
+    border: `1px dashed ${BORDER}`,
+    color: WHITE60,
+    borderRadius: 20,
+    padding: '5px 12px',
+    fontFamily: GEO,
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+  newCatWrap: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  newCatInput: {
+    height: 28,
+    background: WHITE08,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 14,
+    padding: '0 10px',
+    fontFamily: GEO,
+    fontSize: 13,
+    color: WHITE,
+    outline: 'none',
+    width: 140,
+  },
+  newCatSave: {
+    height: 28,
+    padding: '0 12px',
+    borderRadius: 14,
+    border: 'none',
+    background: '#FED430',
+    color: '#160a00',
+    fontFamily: GEO,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+  },
+  newCatCancel: {
+    height: 28,
+    width: 28,
+    padding: 0,
+    borderRadius: 14,
+    border: `1px solid ${BORDER}`,
+    background: 'transparent',
+    color: WHITE60,
+    fontFamily: GEO,
+    fontSize: 13,
+    cursor: 'pointer',
+  },
+  taskMetaLine: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+  },
+  taskCatChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '2px 10px',
+    borderRadius: 12,
+    border: '1px solid',
+    fontFamily: GEO,
+    fontSize: 11,
+    fontWeight: 500,
   },
   listCard: {
     width: 'min(90%, 700px)',

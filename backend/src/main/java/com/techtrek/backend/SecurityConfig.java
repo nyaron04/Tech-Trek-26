@@ -47,7 +47,7 @@ public class SecurityConfig {
                         .requestMatchers("/ai/**").permitAll()
                         // Existing endpoints stay open while the frontend migrates to auth.
                         // To lock them down: replace the next two lines with `.anyRequest().authenticated()`.
-                        .requestMatchers("/tasks/**", "/api/timer/**").permitAll()
+                        .requestMatchers("/tasks/**", "/api/timer/**", "/categories/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

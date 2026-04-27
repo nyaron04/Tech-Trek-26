@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
-import { getUserId, authFetch } from '../auth';
+import { getUserId, authFetch, __internal } from '../auth';
+
+const API_BASE = __internal.API_BASE;
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -16,8 +18,6 @@ const WHITE40  = 'rgba(255,255,255,0.4)';
 const WHITE15  = 'rgba(255,255,255,0.15)';
 const WHITE08  = 'rgba(255,255,255,0.08)';
 const MBORDER  = 'rgba(255,255,255,0.25)';
-
-const TYPES = ['Task', 'Project', 'Homework'];
 
 function getWeekDates(offset = 0) {
   const now = new Date();
@@ -33,14 +33,6 @@ function getWeekDates(offset = 0) {
 
 const HOURS      = Array.from({ length: 16 }, (_, i) => i + 6); // 6 AM – 9 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-const INIT_CATEGORIES = [
-  { label: 'Work',     color: TEAL,      count: 0 },
-  { label: 'Personal', color: '#7BDE8A', count: 0 },
-  { label: 'Study',    color: '#E8C85B', count: 0 },
-];
-
-const COLOR_ROTATION = [TEAL, '#7BDE8A', '#E8C85B', '#E87B5B', '#BE7BE8', '#E85B9A', '#5BE8B4'];
 
 const CAT_COLORS = [
   '#5BC8E8', // teal
@@ -377,7 +369,8 @@ export default function CalendarPage() {
   const [weekOffset,   setWeekOffset]   = useState(0);
   const [chatInput,    setChatInput]    = useState('');
   const [msgs,         setMsgs]         = useState(INIT_CHAT);
-  const [categories,   setCategories]   = useState(INIT_CATEGORIES);
+  const [categories,   setCategories]   = useState([]);
+  const [catError,     setCatError]     = useState('');
   const [showAddInput, setShowAddInput] = useState(false);
   const [newCatName,   setNewCatName]   = useState('');
   const [newCatColor,  setNewCatColor]  = useState(CAT_COLORS[0]);
@@ -387,10 +380,44 @@ export default function CalendarPage() {
   const [editData,        setEditData]        = useState(null);
   const [events,          setEvents]          = useState([]);
   const [popup,           setPopup]           = useState(null); // { eventId, x, y }
-  const [selectedFilters, setSelectedFilters] = useState(
-    () => new Set(INIT_CATEGORIES.map(c => c.label))
-  );
+  const [selectedFilters, setSelectedFilters] = useState(() => new Set());
   const chatEndRef = useRef(null);
+
+  const loadCategories = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      setCategories([]);
+      setSelectedFilters(new Set());
+      setCatError('Sign in to manage categories.');
+      return;
+    }
+    setCatError('');
+    try {
+      const res = await authFetch(`${API_BASE}/categories?userId=${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Failed to load categories (${res.status})`);
+      const list = await res.json();
+      // Map backend shape (name) to UI shape (label) so the rest of the
+      // component continues to use `label` without further changes.
+      const mapped = list.map(c => ({
+        id: c.id,
+        label: c.name,
+        color: c.color || TEAL,
+      }));
+      setCategories(mapped);
+      setSelectedFilters(prev => {
+        if (prev.size === 0) return new Set(mapped.map(c => c.label));
+        const next = new Set();
+        for (const c of mapped) if (prev.has(c.label)) next.add(c.label);
+        return next;
+      });
+    } catch (e) {
+      setCatError(e?.message || 'Could not load categories.');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const openModal = (date = null) => { setEditData(null); setModalDate(date); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); setEditData(null); };
@@ -446,19 +473,54 @@ export default function CalendarPage() {
     );
   };
 
-  const addCategory = () => {
+  const addCategory = async () => {
     const name = newCatName.trim();
     if (!name) return;
-    setCategories(prev => [...prev, { label: name, color: newCatColor, count: 0 }]);
-    setSelectedFilters(prev => new Set([...prev, name]));
-    setNewCatName('');
-    setNewCatColor(CAT_COLORS[0]);
-    setShowAddInput(false);
+    const userId = getUserId();
+    if (!userId) {
+      setCatError('Sign in to add a category.');
+      return;
+    }
+    setCatError('');
+    try {
+      const res = await authFetch(`${API_BASE}/categories`, {
+        method: 'POST',
+        body: JSON.stringify({ userId, name, color: newCatColor }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Add category failed (${res.status})`);
+      }
+      const saved = await res.json();
+      const mapped = { id: saved.id, label: saved.name, color: saved.color || newCatColor };
+      setCategories(prev => {
+        if (prev.some(c => c.id === mapped.id)) return prev;
+        return [...prev, mapped];
+      });
+      setSelectedFilters(prev => new Set([...prev, mapped.label]));
+      setNewCatName('');
+      setNewCatColor(CAT_COLORS[0]);
+      setShowAddInput(false);
+    } catch (e) {
+      setCatError(e?.message || 'Could not add category.');
+    }
   };
 
-  const deleteCategory = label => {
-    setCategories(prev => prev.filter(c => c.label !== label));
-    setSelectedFilters(prev => { const next = new Set(prev); next.delete(label); return next; });
+  const deleteCategory = async label => {
+    const cat = categories.find(c => c.label === label);
+    if (!cat) return;
+    setCatError('');
+    try {
+      const res = await authFetch(`${API_BASE}/categories/${cat.id}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 404) {
+        const body = await res.text();
+        throw new Error(body || `Delete failed (${res.status})`);
+      }
+      setCategories(prev => prev.filter(c => c.id !== cat.id));
+      setSelectedFilters(prev => { const next = new Set(prev); next.delete(label); return next; });
+    } catch (e) {
+      setCatError(e?.message || 'Could not delete category.');
+    }
   };
 
   const weekDates = getWeekDates(weekOffset);
@@ -684,6 +746,9 @@ export default function CalendarPage() {
               );
             })}
           </div>
+          {catError && (
+            <div style={s.catErrorText}>{catError}</div>
+          )}
           {showAddInput && (
             <div style={s.addCatForm}>
               <input
@@ -710,11 +775,27 @@ export default function CalendarPage() {
                   />
                 ))}
               </div>
-              <button style={s.catConfirmBtn} onClick={addCategory}>✓ Add</button>
             </div>
           )}
-          <button style={s.addTaskBtn} onClick={() => setShowAddInput(v => !v)}>
-            + Add Category
+          <button
+            style={{
+              ...s.addTaskBtn,
+              opacity: showAddInput && !newCatName.trim() ? 0.55 : 1,
+              cursor: showAddInput && !newCatName.trim() ? 'not-allowed' : 'pointer',
+            }}
+            onClick={() => {
+              if (!showAddInput) {
+                setShowAddInput(true);
+                return;
+              }
+              if (newCatName.trim()) {
+                addCategory();
+              } else {
+                setShowAddInput(false);
+              }
+            }}
+          >
+            {showAddInput ? '✓ Save Category' : '+ Add Category'}
           </button>
         </div>
 
@@ -1034,6 +1115,12 @@ const s = {
     color: 'rgba(255,255,255,0.9)',
     outline: 'none',
     minWidth: 0,
+  },
+  catErrorText: {
+    fontFamily: GEO,
+    fontSize: 11,
+    color: '#ff8a8a',
+    padding: '2px 2px 0',
   },
   catConfirmBtn: {
     padding: '5px 10px',
