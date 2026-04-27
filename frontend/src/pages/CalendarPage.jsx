@@ -100,18 +100,118 @@ function TargetIcon() {
   );
 }
 
+// ── Event context popup ───────────────────────────────────────────────────────
+function PencilIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M9.5 1.5l3 3L4 13H1v-3L9.5 1.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M8 3l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2 4h10M5 4V2.5h4V4M5.5 6.5v4M8.5 6.5v4M3 4l.8 7.5h6.4L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2 7l4 4 6-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+const POPUP_W = 144;
+const POPUP_H = 112; // approx height for 3 items
+
+function UndoIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M2 5h5.5a4 4 0 1 1 0 8H4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 2.5L2 7l4.5 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function EventPopup({ x, y, onClose, onEdit, onDelete, onComplete, isCompleted }) {
+  useEffect(() => {
+    const dismiss = () => onClose();
+    document.addEventListener('mousedown', dismiss);
+    return () => document.removeEventListener('mousedown', dismiss);
+  }, [onClose]);
+
+  const overflowBottom = y + 8 + POPUP_H > window.innerHeight;
+  const overflowRight  = x + 8 + POPUP_W > window.innerWidth;
+  const top  = overflowBottom ? y - POPUP_H - 8 : y + 8;
+  const left = overflowRight  ? x - POPUP_W - 8 : x + 8;
+
+  const actions = [
+    { Icon: PencilIcon, label: 'Edit',     fn: onEdit },
+    { Icon: TrashIcon,  label: 'Delete',   fn: onDelete },
+    { Icon: isCompleted ? UndoIcon : CheckIcon, label: isCompleted ? 'Undo Complete' : 'Complete', fn: onComplete },
+  ];
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top,
+        left,
+        zIndex: 600,
+        background: 'rgba(16,36,50,0.88)',
+        backdropFilter: 'blur(18px)',
+        WebkitBackdropFilter: 'blur(18px)',
+        border: `1px solid ${BORDER}`,
+        borderRadius: 10,
+        padding: '4px 0',
+        fontFamily: GEO,
+        minWidth: POPUP_W,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      {actions.map(({ Icon, label, fn }) => (
+        <button
+          key={label}
+          onClick={fn}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            width: '100%',
+            padding: '8px 15px',
+            background: 'none',
+            border: 'none',
+            color: 'rgba(255,255,255,0.88)',
+            fontFamily: GEO,
+            fontSize: 13,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <Icon />{label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({ onClose, initialDate, categories, onAddTask }) {
-  const [taskType,           setTaskType]           = useState('Task');
-  const [title,              setTitle]              = useState('');
-  const [description,        setDescription]        = useState('');
-  const [selectedCategory,   setSelectedCategory]   = useState(null);
-  const [startDate,          setStartDate]          = useState(() => initialDate || (() => {
+function TaskModal({ onClose, initialDate, categories, onAddTask, initialData, editMode }) {
+  const [title,              setTitle]              = useState(initialData?.title ?? '');
+  const [description,        setDescription]        = useState(initialData?.description ?? '');
+  const [selectedCategory,   setSelectedCategory]   = useState(initialData?.categoryLabel ?? null);
+  const [startDate,          setStartDate]          = useState(() => {
+    if (initialData?.date) return new Date(initialData.date);
+    if (initialDate) return initialDate;
     const d = new Date(); d.setMinutes(0, 0, 0); return d;
-  })());
+  });
   const [endDate,            setEndDate]            = useState(() => {
-    const base = initialDate ? new Date(initialDate) : new Date();
-    if (!initialDate) base.setMinutes(0, 0, 0);
+    const base = initialData?.date ? new Date(initialData.date) : initialDate ? new Date(initialDate) : new Date();
+    if (!initialData?.date && !initialDate) base.setMinutes(0, 0, 0);
     base.setHours(base.getHours() + 1);
     return base;
   });
@@ -173,23 +273,6 @@ function TaskModal({ onClose, initialDate, categories, onAddTask }) {
           autoFocus
         />
         <div style={m.divider} />
-
-        {/* Type selector */}
-        <div style={m.typeRow}>
-          {TYPES.map(t => (
-            <button
-              key={t}
-              style={{
-                ...m.typeBtn,
-                border: taskType === t ? `1px solid ${MBORDER}` : '1px solid transparent',
-                color: taskType === t ? WHITE : WHITE60,
-              }}
-              onClick={() => setTaskType(t)}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
 
         {/* Date / time row */}
         <div style={m.infoRow} onClick={() => setShowStartPicker(v => !v)}>
@@ -275,13 +358,13 @@ function TaskModal({ onClose, initialDate, categories, onAddTask }) {
           rows={4}
         />
 
-        {/* Add Task button */}
+        {/* Add Task / Save Changes button */}
         <div style={m.btnRow}>
           <button style={m.addBtn} onClick={() => {
             const cat = categories.find(c => c.label === selectedCategory);
-            onAddTask({ title, startDate, category: cat ?? null });
+            onAddTask({ title, startDate, category: cat ?? null, description, id: initialData?.id });
             onClose();
-          }}>Add Task</button>
+          }}>{editMode ? 'Save Changes' : 'Add Task'}</button>
         </div>
       </div>
     </div>
@@ -300,24 +383,51 @@ export default function CalendarPage() {
   const [hoveredCat,   setHoveredCat]   = useState(null);
   const [modalOpen,       setModalOpen]       = useState(false);
   const [modalDate,       setModalDate]       = useState(null);
+  const [editData,        setEditData]        = useState(null);
   const [events,          setEvents]          = useState([]);
+  const [popup,           setPopup]           = useState(null); // { eventId, x, y }
   const [selectedFilters, setSelectedFilters] = useState(
     () => new Set(INIT_CATEGORIES.map(c => c.label))
   );
   const chatEndRef = useRef(null);
 
-  const openModal = (date = null) => { setModalDate(date); setModalOpen(true); };
-  const closeModal = () => setModalOpen(false);
+  const openModal = (date = null) => { setEditData(null); setModalDate(date); setModalOpen(true); };
+  const closeModal = () => { setModalOpen(false); setEditData(null); };
 
-  const handleAddTask = ({ title, startDate, category }) => {
-    if (!title.trim()) return;
-    setEvents(prev => [...prev, {
-      title,
-      color: category?.color ?? TEAL,
-      categoryLabel: category?.label ?? null,
-      date: startDate,
-    }]);
+  const openEditModal = id => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+    setEditData({ id: ev.id, title: ev.title, date: ev.date, categoryLabel: ev.categoryLabel, description: ev.description ?? '' });
+    setModalOpen(true);
   };
+
+  const handleAddTask = ({ title, startDate, category, description, id }) => {
+    if (!title.trim()) return;
+    if (id) {
+      setEvents(prev => prev.map(e => e.id === id ? {
+        ...e,
+        title,
+        color: category?.color ?? e.color,
+        categoryLabel: category?.label ?? null,
+        date: startDate,
+        description: description ?? '',
+      } : e));
+    } else {
+      setEvents(prev => [...prev, {
+        id: Date.now(),
+        title,
+        color: category?.color ?? TEAL,
+        categoryLabel: category?.label ?? null,
+        date: startDate,
+        description: description ?? '',
+        completed: false,
+      }]);
+    }
+  };
+
+  const deleteEvent      = id => setEvents(prev => prev.filter(e => e.id !== id));
+  const completeEvent   = id => setEvents(prev => prev.map(e => e.id === id ? { ...e, completed: true }  : e));
+  const uncompleteEvent = id => setEvents(prev => prev.map(e => e.id === id ? { ...e, completed: false } : e));
 
   const toggleFilter = label => {
     setSelectedFilters(prev => {
@@ -360,7 +470,7 @@ export default function CalendarPage() {
     const iso = d.toISOString().slice(0, 10);
     const di  = weekDates.findIndex(wd => wd.toISOString().slice(0, 10) === iso);
     if (di === -1) return;
-    eventMap[`${di}-${d.getHours()}`] = { title: ev.title, color: ev.color };
+    eventMap[`${di}-${d.getHours()}`] = { id: ev.id, title: ev.title, color: ev.color, completed: ev.completed };
   });
 
   useEffect(() => {
@@ -406,8 +516,29 @@ export default function CalendarPage() {
           initialDate={modalDate}
           categories={categories}
           onAddTask={handleAddTask}
+          initialData={editData}
+          editMode={!!editData}
         />
       )}
+      {popup && (() => {
+        const popupEv = events.find(e => e.id === popup.eventId);
+        return (
+          <EventPopup
+            x={popup.x}
+            y={popup.y}
+            onClose={() => setPopup(null)}
+            onEdit={() => { openEditModal(popup.eventId); setPopup(null); }}
+            onDelete={() => { deleteEvent(popup.eventId); setPopup(null); }}
+            isCompleted={!!popupEv?.completed}
+            onComplete={() => {
+              popupEv?.completed
+                ? uncompleteEvent(popup.eventId)
+                : completeEvent(popup.eventId);
+              setPopup(null);
+            }}
+          />
+        );
+      })()}
 
       {/* ── WEEKLY CALENDAR ── */}
       <main style={s.calArea}>
@@ -466,11 +597,14 @@ export default function CalendarPage() {
                         <div
                           style={{
                             ...s.eventBlock,
-                            background:  ev.color + '25',
-                            borderLeft: `3px solid ${ev.color}`,
+                            ...(ev.completed
+                              ? { background: 'transparent', border: `1.5px dashed ${ev.color}`, opacity: 0.45 }
+                              : { background: ev.color + '25', borderLeft: `3px solid ${ev.color}` }
+                            ),
                           }}
+                          onClick={e => { e.stopPropagation(); setPopup({ eventId: ev.id, x: e.clientX, y: e.clientY }); }}
                         >
-                          <span style={{ ...s.eventText, color: ev.color }}>{ev.title}</span>
+                          <span style={{ ...s.eventText, color: ev.color, textDecoration: ev.completed ? 'line-through' : 'none' }}>{ev.title}</span>
                         </div>
                       ) : (
                         <div style={s.emptyCellHint} className="empty-cell-hint" />
