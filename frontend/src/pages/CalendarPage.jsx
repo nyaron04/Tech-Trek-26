@@ -34,6 +34,19 @@ function getWeekDates(offset = 0) {
 const HOURS      = Array.from({ length: 24 }, (_, i) => i); // 12 AM – 11 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// Safely converts any CSS color string to rgba() with the given alpha.
+// Handles 6-digit hex (#RRGGBB), 8-digit hex (#RRGGBBAA), and falls back to TEAL.
+function colorWithAlpha(color, alpha) {
+  if (!color) return `rgba(91,200,232,${alpha})`;
+  const hex = color.replace(/^#/, '');
+  const digits = /^[0-9a-fA-F]{6}/.test(hex) ? hex.slice(0, 6) : null;
+  if (!digits) return `rgba(91,200,232,${alpha})`;
+  const r = parseInt(digits.slice(0, 2), 16);
+  const g = parseInt(digits.slice(2, 4), 16);
+  const b = parseInt(digits.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 const CAT_COLORS = [
   '#5BC8E8', // teal
   '#9B6FE8', // purple
@@ -400,6 +413,23 @@ export default function CalendarPage() {
   const [popup,           setPopup]           = useState(null); // { eventId, x, y }
   const [selectedFilters, setSelectedFilters] = useState(() => new Set());
   const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    const apply = () => {
+      try {
+        const names = JSON.parse(localStorage.getItem('completedTaskNames') || '[]');
+        if (names.length === 0) return;
+        setEvents(prev => {
+          const needsUpdate = prev.some(e => !e.completed && names.includes(e.title));
+          if (!needsUpdate) return prev;
+          return prev.map(e => (!e.completed && names.includes(e.title)) ? { ...e, completed: true } : e);
+        });
+      } catch {}
+    };
+    apply();
+    window.addEventListener('storage', apply);
+    return () => window.removeEventListener('storage', apply);
+  }, []);
 
   const loadCategories = useCallback(async () => {
     const userId = getUserId();
@@ -792,7 +822,7 @@ export default function CalendarPage() {
                             ...s.eventBlock,
                             ...(ev.completed
                               ? { background: 'transparent', border: `1.5px dashed ${ev.color}`, opacity: 0.45 }
-                              : { background: ev.color + '25', borderLeft: `3px solid ${ev.color}` }
+                              : { background: colorWithAlpha(ev.color, 0.15), borderLeft: `3px solid ${ev.color}` }
                             ),
                           }}
                           onClick={e => { e.stopPropagation(); setPopup({ eventId: ev.id, x: e.clientX, y: e.clientY }); }}
@@ -838,8 +868,8 @@ export default function CalendarPage() {
                   key={label}
                   style={{
                     ...s.catRow,
-                    background: active ? color + '22' : 'transparent',
-                    border: active ? `1px solid ${color}55` : '1px solid transparent',
+                    background: active ? color + '22' : 'rgba(255,255,255,0.06)',
+                    border: active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,0.10)',
                     borderRadius: 7,
                     padding: '4px 6px',
                     margin: '0 -6px',

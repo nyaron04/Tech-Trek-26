@@ -94,7 +94,12 @@ export default function PersonalDashboard() {
   const userInitials = getInitials(userName);
 
   const bioKey = currentUser?.email ? `honeybee_bio_${currentUser.email}` : null;
-  const [xp, setXp] = useState(() => parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
+  const [xp, setXp] = useState(() => {
+    try {
+      const timer = JSON.parse(localStorage.getItem('honeybee_timer') || '{}');
+      return Math.floor((timer.elapsed || 0) / 60000);
+    } catch { return 0; }
+  });
   const [bio, setBio] = useState('');
   const [pageSize, setPageSize] = useState(5);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
@@ -102,10 +107,13 @@ export default function PersonalDashboard() {
   const [hoveredRow, setHoveredRow] = useState(null);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setXp(parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
-    }, 1000);
-    return () => clearInterval(id);
+    const readXp = () => {
+      try {
+        const timer = JSON.parse(localStorage.getItem('honeybee_timer') || '{}');
+        setXp(Math.floor((timer.elapsed || 0) / 60000));
+      } catch { setXp(0); }
+    };
+    readXp();
   }, []);
 
   useEffect(() => {

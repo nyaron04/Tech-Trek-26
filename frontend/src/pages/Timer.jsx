@@ -19,7 +19,13 @@ export default function Timer() {
   const navigate       = useNavigate();
   const location       = useLocation();
   const routeTaskId    = location.state?.taskId    || null;
-  const routeTaskTitle = location.state?.taskTitle || 'Title of Task';
+  const routeTaskTitle = (() => {
+    if (location.state?.taskTitle) return location.state.taskTitle;
+    try {
+      const a = JSON.parse(localStorage.getItem('honeybee_active_task') || '{}');
+      return a.taskName || 'Title of Task';
+    } catch { return 'Title of Task'; }
+  })();
 
   const [running,     setRunning]     = useState(false);
   const [secs,        setSecs]        = useState(0);
@@ -216,7 +222,34 @@ export default function Timer() {
 
   const finish = async () => {
     const stopped = await endTimer();
-    if (stopped) navigate('/task-completed');
+    if (!stopped) return;
+
+    try {
+      const active = JSON.parse(localStorage.getItem('honeybee_active_task') || '{}');
+      const name     = active.taskName || taskTitle;
+      const category = active.taskCategory || 'Uncategorized';
+
+      if (name && name !== 'Title of Task') {
+        const now     = new Date();
+        const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const h       = Math.floor(secs / 3600);
+        const m       = Math.floor((secs % 3600) / 60);
+        const timeStr = h > 0 ? `${h} hr ${m} min` : `${m} min`;
+
+        const entry = { taskName: name, dateCompleted: dateStr, timeSpent: timeStr, taskCategory: category };
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        if (!existing.some(t => t.taskName === name)) {
+          localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
+        }
+
+        const names = JSON.parse(localStorage.getItem('completedTaskNames') || '[]');
+        if (!names.includes(name)) {
+          localStorage.setItem('completedTaskNames', JSON.stringify([...names, name]));
+        }
+      }
+    } catch {}
+
+    navigate('/task-completed');
   };
 
   return (
