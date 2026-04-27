@@ -407,6 +407,7 @@ export default function CalendarPage() {
   const [modalOpen,       setModalOpen]       = useState(false);
   const [modalDate,       setModalDate]       = useState(null);
   const [editData,        setEditData]        = useState(null);
+  const [pendingAiEvents, setPendingAiEvents] = useState([]);
   const [events,          setEvents]          = useState(() => {
     try { return JSON.parse(localStorage.getItem('honeybee_tasks') || '[]'); }
     catch { return []; }
@@ -415,6 +416,7 @@ export default function CalendarPage() {
   const [selectedFilters, setSelectedFilters] = useState(() => new Set());
   const chatEndRef = useRef(null);
 
+  const [showAiPreviewTip, setShowAiPreviewTip] = useState(false);
   useEffect(() => {
     const apply = () => {
       try {
@@ -702,12 +704,16 @@ export default function CalendarPage() {
     const iso = d.toISOString().slice(0, 10);
     const di  = weekDates.findIndex(wd => wd.toISOString().slice(0, 10) === iso);
     if (di === -1) return;
+    const end = ev.endDate ? new Date(ev.endDate) : new Date(d.getTime() + 60 * 60 * 1000);
+    const durationMinutes = Math.max(15, Math.round((end - d) / (60 * 1000)));
+
     eventMap[`${di}-${d.getHours()}`] = {
       id: ev.id,
       taskId: ev.taskId,
       title: ev.title,
       color: ev.color,
       completed: ev.completed,
+      durationMinutes,
     };
   });
 
@@ -718,6 +724,24 @@ export default function CalendarPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [msgs]);
+
+  const eventsOverlap = (startA, endA, startB, endB) => {
+    return startA < endB && endA > startB;
+  };
+
+  const isOverlappingExistingEvent = (block) => {
+    const blockStart = new Date(block.startTime);
+    const blockEnd = new Date(block.endTime);
+
+    return events.some(ev => {
+      const evStart = new Date(ev.date);
+      const evEnd = new Date(
+        ev.endDate || evStart.getTime() + 60 * 60 * 1000
+      );
+
+      return eventsOverlap(blockStart, blockEnd, evStart, evEnd);
+    });
+  };
 
   const sendChat = async () => {
     if (!chatInput.trim()) return;
@@ -747,21 +771,187 @@ export default function CalendarPage() {
         body: JSON.stringify({
           userId,
           message: text,
+
+          calendarEvents: events.map(ev => ({
+            title: ev.title,
+            startTime: new Date(ev.date).toISOString(),
+            endTime: new Date(
+              ev.endDate || new Date(ev.date).getTime() + 60 * 60 * 1000
+            ).toISOString(),
+            category: ev.categoryLabel || "General",
+          })),
+
+          pendingAiEvents: pendingAiEvents.map(ev => ({
+            title: ev.title,
+            startTime: new Date(ev.date).toISOString(),
+            endTime: new Date(
+              ev.endDate || new Date(ev.date).getTime() + 60 * 60 * 1000
+            ).toISOString(),
+            category: ev.categoryLabel || ev.categoryName || "General",
+          })),
         }),
       });
 
+      if (!response.ok) {
+        throw new Error("AI request failed");
+      }
+
       const data = await response.text();
+      let aiMessage = data;
+
+      try {
+        const parsed = JSON.parse(data);
+
+        aiMessage = parsed.message || "I suggested a schedule.";
+
+        if (parsed.suggestedBlocks && Array.isArray(parsed.suggestedBlocks)) {
+          const aiEvents = parsed.suggestedBlocks
+            .filter(block => !isOverlappingExistingEvent(block))
+            .map(block => {
+              const matchedCategory = categories.find(c =>
+                (block.category || "").toLowerCase().includes(c.label.toLowerCase()) ||
+                c.label.toLowerCase().includes((block.category || "").toLowerCase())
+              );
+
+              return {
+                id: crypto.randomUUID(),
+                taskId: null,
+                title: block.title,
+                color: matchedCategory?.color || TEAL,
+                categoryLabel: matchedCategory?.label || null,
+                categoryName: block.category || null,
+                date: new Date(block.startTime),
+                endDate: new Date(block.endTime),
+                description: "AI suggested block",
+                completed: false,
+                aiSuggested: true,
+              };
+            });
+
+          setPendingAiEvents(aiEvents);
+        }
+      } catch {
+        aiMessage = data;
+      }
 
       setMsgs(prev => [
         ...prev.slice(0, -1),
-        { from: 'bot', text: data },
+        { from: 'bot', text: aiMessage },
       ]);
     } catch (error) {
+      const message =
+        error.message === "No logged-in user found."
+          ? "Please log in first so I can access your schedule."
+          : "Something went wrong. Please try again.";
+
       setMsgs(prev => [
         ...prev.slice(0, -1),
-        { from: 'bot', text: "Something went wrong. Please try again." },
+        { from: 'bot', text: message },
       ]);
     }
+  };
+
+const acceptAiEvents = async () => {
+  const userId = getUserId();
+
+  if (!userId) {
+    setMsgs(prev => [
+      ...prev,
+      { from: 'bot', text: "Please log in first so I can access your schedule." },
+    ]);
+    return;
+  }
+
+  try {
+    const savedEvents = [];
+
+    for (const event of pendingAiEvents) {
+      let matchedCategory = categories.find(c =>
+        c.label.toLowerCase() === (event.categoryName || event.categoryLabel || "").toLowerCase()
+      );
+
+      if (!matchedCategory) {
+        const categoryName = event.categoryName || event.categoryLabel || "AI Suggested";
+
+        const categoryRes = await authFetch(`${API_BASE}/categories`, {
+          method: "POST",
+          body: JSON.stringify({
+            userId,
+            name: categoryName,
+            color: event.color || TEAL,
+          }),
+        });
+
+        if (!categoryRes.ok) {
+          throw new Error(`Could not create category (${categoryRes.status})`);
+        }
+
+        const savedCategory = await categoryRes.json();
+
+        matchedCategory = {
+          id: savedCategory.id,
+          label: savedCategory.name,
+          color: savedCategory.color || event.color || TEAL,
+        };
+
+        setCategories(prev => [...prev, matchedCategory]);
+        setSelectedFilters(prev => new Set([...prev, matchedCategory.label]));
+      }
+
+      const taskPayload = {
+        title: event.title,
+        description: event.description || "AI suggested block",
+        status: "not completed",
+        categoryId: matchedCategory.id,
+        userId,
+        type: "calendar",
+      };
+
+      const taskRes = await authFetch(`${API_BASE}/tasks`, {
+        method: "POST",
+        body: JSON.stringify(taskPayload),
+      });
+
+      if (!taskRes.ok) {
+        throw new Error(`Could not create task (${taskRes.status})`);
+      }
+
+      const savedTask = await taskRes.json();
+
+      savedEvents.push({
+        ...event,
+        id: savedTask.id,
+        taskId: savedTask.id,
+        title: savedTask.title,
+        color: matchedCategory.color,
+        categoryLabel: matchedCategory.label,
+        description: savedTask.description || event.description,
+        aiSuggested: false,
+      });
+    }
+
+    setEvents(prev => [...prev, ...savedEvents]);
+    setPendingAiEvents([]);
+
+    setMsgs(prev => [
+      ...prev,
+      { from: 'bot', text: "Added those suggested blocks as tasks on your calendar." },
+    ]);
+  } catch (error) {
+    setMsgs(prev => [
+      ...prev,
+      { from: 'bot', text: "I couldn't add those blocks yet. Please try again." },
+    ]);
+  }
+};
+
+  const dismissAiEvents = () => {
+    setPendingAiEvents([]);
+
+    setMsgs(prev => [
+      ...prev,
+      { from: 'bot', text: "No problem — I dismissed those suggestions." },
+    ]);
   };
 
   return (
@@ -854,6 +1044,8 @@ export default function CalendarPage() {
                         <div
                           style={{
                             ...s.eventBlock,
+                            height: `${Math.max(12, (52 / 60) * ev.durationMinutes)}px`,
+                            zIndex: 5,
                             ...(ev.completed
                               ? { background: 'transparent', border: `1.5px dashed ${ev.color}`, opacity: 0.45 }
                               : { background: colorWithAlpha(ev.color, 0.15), borderLeft: `3px solid ${ev.color}` }
@@ -999,6 +1191,42 @@ export default function CalendarPage() {
             ))}
             <div ref={chatEndRef} />
           </div>
+
+          {pendingAiEvents.length > 0 && (
+            <div style={s.aiPreviewBox}>
+              <div style={s.aiPreviewTitle}>Suggested blocks</div>
+
+              {pendingAiEvents.map(event => (
+                <div key={event.id} style={s.aiPreviewItem}>
+                  {event.title} — {new Date(event.date).toLocaleString()} to {new Date(event.endDate).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </div>
+              ))}
+
+              <div style={s.aiPreviewActions}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <button
+                    style={s.aiAcceptBtn}
+                    onClick={acceptAiEvents}
+                    onMouseEnter={() => setShowAiPreviewTip(true)}
+                    onMouseLeave={() => setShowAiPreviewTip(false)}
+                  >
+                    Add to calendar
+                  </button>
+
+                  {showAiPreviewTip && (
+                    <div style={s.aiPreviewTooltip}>
+                      This will add the suggested block(s) to your calendar.
+                    </div>
+                  )}
+                </div>
+
+                <button style={s.aiDismissBtn} onClick={dismissAiEvents}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={s.chatRow}>
             <input
               style={s.chatInput}
@@ -1160,10 +1388,14 @@ const s = {
   eventBlock: {
     borderRadius: 4,
     padding: '4px 7px',
-    height: '100%',
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     cursor: 'pointer',
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    right: 2,
+    overflow: 'hidden',
   },
   eventText: {
     fontSize: 11,
@@ -1383,6 +1615,69 @@ const s = {
     justifyContent: 'center',
     flexShrink: 0,
     padding: 0,
+  },
+  aiPreviewBox: {
+    background: 'rgba(91,200,232,0.12)',
+    border: '1px solid rgba(91,200,232,0.35)',
+    borderRadius: 10,
+    padding: 9,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 7,
+  },
+
+  aiPreviewTitle: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: TEAL,
+  },
+
+  aiPreviewItem: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.85)',
+    lineHeight: 1.4,
+  },
+
+  aiPreviewActions: {
+    display: 'flex',
+    gap: 6,
+  },
+
+  aiAcceptBtn: {
+    flex: 1,
+    border: 'none',
+    borderRadius: 7,
+    padding: '6px 8px',
+    background: TEAL,
+    color: '#fff',
+    fontSize: 11,
+    cursor: 'pointer',
+  },
+
+  aiDismissBtn: {
+    flex: 1,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 7,
+    padding: '6px 8px',
+    background: 'rgba(255,255,255,0.08)',
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 11,
+    cursor: 'pointer',
+  },
+  
+  aiPreviewTooltip: {
+    position: 'absolute',
+    bottom: '115%',
+    left: 0,
+    background: 'rgba(16,36,50,0.95)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    padding: '6px 8px',
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 10,
+    lineHeight: 1.3,
+    width: 150,
+    zIndex: 20,
   },
 };
 
