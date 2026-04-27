@@ -115,6 +115,7 @@ export default function Timer() {
   }, [loadActiveTimer, stopLocalTicker]);
 
   const canStart = !!taskId && !!getUserId();
+  const canFinishTimer = Boolean(timerId);
 
   const startTimer = async () => {
     const userId = getUserId();
@@ -165,7 +166,7 @@ export default function Timer() {
         const active = await activeRes.json();
         idToStop = active?.id;
       }
-      if (!idToStop) return true;
+      if (!idToStop) return false;
 
       const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, {
         method: 'POST',
@@ -268,8 +269,17 @@ export default function Timer() {
   };
 
   const finish = async () => {
+    if (busy) return;
+    if (!canFinishTimer) {
+      setError('Start the timer before completing a task.');
+      return;
+    }
+
     const stopped = await endTimer();
-    if (!stopped) return;
+    if (!stopped) {
+      setError('Start the timer before completing a task.');
+      return;
+    }
 
     try {
       const active = JSON.parse(localStorage.getItem('honeybee_active_task') || '{}');
@@ -340,7 +350,18 @@ export default function Timer() {
       {/* Top nav bar */}
       <div style={s.topBar}>
         <button style={s.navBtn} onClick={() => navigate(-1)}>{'< Back'}</button>
-        <button style={s.navBtn} onClick={finish}>{'Finish! >'}</button>
+        <button
+          style={{
+            ...s.navBtn,
+            opacity: canFinishTimer && !busy ? 1 : 0.45,
+            cursor: canFinishTimer && !busy ? 'pointer' : 'not-allowed',
+          }}
+          onClick={finish}
+          disabled={!canFinishTimer || busy}
+          title={canFinishTimer ? 'Finish timer and mark task complete' : 'Start the timer before completing a task'}
+        >
+          {'Finish! >'}
+        </button>
       </div>
 
       {/* Center content */}

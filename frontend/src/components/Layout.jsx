@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { authFetch, getUserId, useCurrentUser, __internal } from '../auth';
+import { authFetch, getUserId, signOut, useCurrentUser, __internal } from '../auth';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import beeLogo  from '../assets/Honey Bee Logo.png';
@@ -31,7 +31,7 @@ const NAV_SECTIONS = [
     title: 'MANAGE',
     items: [
       { label: 'Tasks',    route: '/tasks'     },
-      { label: 'Log Out', route: '/landing' },
+      { label: 'Log Out', route: '/', action: 'logout' },
     ],
   },
 ];
@@ -64,6 +64,7 @@ export default function Layout({ children }) {
   const [timerBusy,   setTimerBusy]   = useState(false);
   const [timerError,  setTimerError]  = useState('');
   const intervalRef = useRef(null);
+  const canFinishTimer = Boolean(timerId);
 
   const stopLocalTicker = useCallback(() => {
     clearInterval(intervalRef.current);
@@ -278,10 +279,20 @@ export default function Layout({ children }) {
 
   const finishTimerAndNavigate = async () => {
     if (timerBusy) return;
+    if (!canFinishTimer) {
+      setTimerError('Start the timer before completing a task.');
+      return;
+    }
+
     setTimerBusy(true);
     setTimerError('');
     try {
       const stoppedTimer = await stopBackendTimer();
+      if (!stoppedTimer) {
+        setTimerError('Start the timer before completing a task.');
+        return;
+      }
+
       await markTaskComplete(stoppedTimer?.taskId);
       stopLocalTicker();
       setRunning(false);
@@ -318,6 +329,21 @@ export default function Layout({ children }) {
     } finally {
       setTimerBusy(false);
     }
+  };
+
+  const handleNavItemClick = (item) => {
+    if (item.action === 'logout') {
+      signOut();
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+      navigate('/', { replace: true });
+      return;
+    }
+
+    navigate(item.route);
   };
 
   return (
@@ -380,7 +406,16 @@ export default function Layout({ children }) {
           </div>
           {timerError && <span style={s.timerError}>{timerError}</span>}
 
-          <button style={s.doneBtn} onClick={finishTimerAndNavigate} title="Finish timer and mark task complete">
+          <button
+            style={{
+              ...s.doneBtn,
+              opacity: canFinishTimer && !timerBusy ? 1 : 0.45,
+              cursor: canFinishTimer && !timerBusy ? 'pointer' : 'not-allowed',
+            }}
+            onClick={finishTimerAndNavigate}
+            disabled={!canFinishTimer || timerBusy}
+            title={canFinishTimer ? 'Finish timer and mark task complete' : 'Start the timer before completing a task'}
+          >
             ✓
           </button>
         </header>
@@ -396,7 +431,8 @@ export default function Layout({ children }) {
             {NAV_SECTIONS.map(({ title, items }) => (
               <div key={title} style={s.navSection}>
                 <div style={s.sectionLabel}>{title}</div>
-                {items.map(({ label, route }) => {
+                {items.map((item) => {
+                  const { label, route } = item;
                   const active = pathname === route;
                   return (
                     <button
@@ -408,7 +444,7 @@ export default function Layout({ children }) {
                         color:       active ? TEAL : 'rgba(255,255,255,0.75)',
                         fontWeight:  active ? 500 : 400,
                       }}
-                      onClick={() => navigate(route)}
+                      onClick={() => handleNavItemClick(item)}
                     >
                       {label}
                     </button>
