@@ -30,11 +30,7 @@ const NAV_SECTIONS = [
     title: 'MANAGE',
     items: [
       { label: 'Tasks',    route: '/tasks'     },
-<<<<<<< HEAD
-      { label: 'Log Out', route: '/dashboard' },
-=======
       { label: 'Log Out', route: '/landing' },
->>>>>>> 04b0f6c6c5616fdade133111440abe5291658358
     ],
   },
 ];
