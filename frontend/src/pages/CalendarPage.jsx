@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
+import { getUserId, authFetch } from '../auth';
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -532,15 +533,49 @@ export default function CalendarPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [msgs]);
 
-  const sendChat = () => {
+  const sendChat = async () => {
     if (!chatInput.trim()) return;
+
     const text = chatInput;
+
     setMsgs(prev => [
       ...prev,
       { from: 'user', text },
-      { from: 'bot', text: "Got it! I'll update your schedule right away." },
+      { from: 'bot', text: "Thinking..." },
     ]);
+
     setChatInput('');
+
+    try {
+      const userId = getUserId();
+
+      if (!userId) {
+        throw new Error("No logged-in user found.");
+      }
+
+      const response = await authFetch("http://localhost:8080/ai/schedule/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId,
+          message: text,
+        }),
+      });
+
+      const data = await response.text();
+
+      setMsgs(prev => [
+        ...prev.slice(0, -1),
+        { from: 'bot', text: data },
+      ]);
+    } catch (error) {
+      setMsgs(prev => [
+        ...prev.slice(0, -1),
+        { from: 'bot', text: "Something went wrong. Please try again." },
+      ]);
+    }
   };
 
   return (

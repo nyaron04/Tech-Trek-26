@@ -6,6 +6,8 @@ import java.util.UUID;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -39,6 +41,18 @@ public class AiScheduleController {
         return geminiService.generateRecommendation(prompt);
     }
 
+    @PostMapping("/schedule/chat")
+    public String getChatScheduleRecommendation(@RequestBody AiScheduleRequest request) {
+        List<Task> tasks = taskRepository.findByUserId(request.getUserId());
+        List<TimerEntry> timerEntries = timerEntryRepository.findByUserIdOrderByCreatedAtDesc(request.getUserId());
+
+        String prompt = buildPrompt(tasks, timerEntries)
+                + "\n\nUser message:\n"
+                + request.getMessage()
+                + "\n\nRespond directly to the user's message using the task and timer history above.";
+
+        return geminiService.generateRecommendation(prompt);
+    }
     private String buildPrompt(List<Task> tasks, List<TimerEntry> timerEntries) {
         StringBuilder prompt = new StringBuilder();
 
