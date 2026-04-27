@@ -34,6 +34,19 @@ function getWeekDates(offset = 0) {
 const HOURS      = Array.from({ length: 24 }, (_, i) => i); // 12 AM – 11 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+// Safely converts any CSS color string to rgba() with the given alpha.
+// Handles 6-digit hex (#RRGGBB), 8-digit hex (#RRGGBBAA), and falls back to TEAL.
+function colorWithAlpha(color, alpha) {
+  if (!color) return `rgba(91,200,232,${alpha})`;
+  const hex = color.replace(/^#/, '');
+  const digits = /^[0-9a-fA-F]{6}/.test(hex) ? hex.slice(0, 6) : null;
+  if (!digits) return `rgba(91,200,232,${alpha})`;
+  const r = parseInt(digits.slice(0, 2), 16);
+  const g = parseInt(digits.slice(2, 4), 16);
+  const b = parseInt(digits.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 const CAT_COLORS = [
   '#5BC8E8', // teal
   '#9B6FE8', // purple
@@ -386,6 +399,7 @@ export default function CalendarPage() {
   const [msgs,         setMsgs]         = useState(INIT_CHAT);
   const [categories,   setCategories]   = useState([]);
   const [catError,     setCatError]     = useState('');
+  const [taskError,    setTaskError]    = useState('');
   const [showAddInput, setShowAddInput] = useState(false);
   const [newCatName,   setNewCatName]   = useState('');
   const [newCatColor,  setNewCatColor]  = useState(CAT_COLORS[0]);
@@ -403,6 +417,22 @@ export default function CalendarPage() {
   const chatEndRef = useRef(null);
 
   const [showAiPreviewTip, setShowAiPreviewTip] = useState(false);
+  useEffect(() => {
+    const apply = () => {
+      try {
+        const names = JSON.parse(localStorage.getItem('completedTaskNames') || '[]');
+        if (names.length === 0) return;
+        setEvents(prev => {
+          const needsUpdate = prev.some(e => !e.completed && names.includes(e.title));
+          if (!needsUpdate) return prev;
+          return prev.map(e => (!e.completed && names.includes(e.title)) ? { ...e, completed: true } : e);
+        });
+      } catch {}
+    };
+    apply();
+    window.addEventListener('storage', apply);
+    return () => window.removeEventListener('storage', apply);
+  }, []);
 
   const loadCategories = useCallback(async () => {
     const userId = getUserId();
@@ -509,6 +539,31 @@ export default function CalendarPage() {
     }
   };
 
+  const ensureBackendTaskForEvent = async (ev) => {
+    if (ev?.taskId) return ev.taskId;
+    const category = categories.find(c => c.label === ev.categoryLabel);
+    const saved = await saveBackendTask({
+      title: ev.title,
+      description: ev.description,
+      category,
+    });
+    setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, taskId: saved.id } : e));
+    return saved.id;
+  };
+
+  const updateBackendTaskStatus = async (ev, status) => {
+    const taskId = await ensureBackendTaskForEvent(ev);
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Task status update failed (${res.status})`);
+    }
+    return taskId;
+  };
+
   const deleteEvent = async id => {
     const ev = events.find(e => e.id === id);
     if (ev?.taskId) {
@@ -529,41 +584,48 @@ export default function CalendarPage() {
     setEvents(prev => prev.filter(e => e.id !== id));
   };
 
-  const completeEvent = id => {
-    setEvents(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, completed: true } : e);
-      const ev = next.find(e => e.id === id);
-      if (ev) {
-        const entry = {
-          taskName:      ev.title,
-          dateCompleted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          timeSpent:     '—',
-          taskCategory:  ev.categoryLabel ?? 'Uncategorized',
-        };
-        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
-        const alreadyExists = existing.some(t => t.taskName === entry.taskName && t.dateCompleted === entry.dateCompleted);
-        if (!alreadyExists) {
-          localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
-        }
+  const completeEvent = async id => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+
+    setTaskError('');
+    try {
+      const taskId = await updateBackendTaskStatus(ev, 'completed');
+      const entry = {
+        taskName:      ev.title,
+        dateCompleted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        timeSpent:     '—',
+        taskCategory:  ev.categoryLabel ?? 'Uncategorized',
+      };
+      const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+      const alreadyExists = existing.some(t => t.taskName === entry.taskName && t.dateCompleted === entry.dateCompleted);
+      if (!alreadyExists) {
+        localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
       }
-      return next;
-    });
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, taskId, completed: true } : e));
+    } catch (e) {
+      setTaskError(e?.message || 'Could not mark task complete.');
+    }
   };
 
-  const uncompleteEvent = id => {
-    setEvents(prev => {
-      const ev = prev.find(e => e.id === id);
-      if (ev) {
-        const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        try {
-          const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
-          localStorage.setItem('completedTasks', JSON.stringify(
-            existing.filter(t => !(t.taskName === ev.title && t.dateCompleted === dateCompleted))
-          ));
-        } catch {}
-      }
-      return prev.map(e => e.id === id ? { ...e, completed: false } : e);
-    });
+  const uncompleteEvent = async id => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+
+    setTaskError('');
+    try {
+      const taskId = await updateBackendTaskStatus(ev, 'not completed');
+      const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      try {
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        localStorage.setItem('completedTasks', JSON.stringify(
+          existing.filter(t => !(t.taskName === ev.title && t.dateCompleted === dateCompleted))
+        ));
+      } catch {}
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, taskId, completed: false } : e));
+    } catch (e) {
+      setTaskError(e?.message || 'Could not undo task completion.');
+    }
   };
 
   const toggleFilter = label => {
@@ -914,10 +976,10 @@ const acceptAiEvents = async () => {
             onEdit={() => { openEditModal(popup.eventId); setPopup(null); }}
             onDelete={() => { deleteEvent(popup.eventId); setPopup(null); }}
             isCompleted={!!popupEv?.completed}
-            onComplete={() => {
+            onComplete={async () => {
               popupEv?.completed
-                ? uncompleteEvent(popup.eventId)
-                : completeEvent(popup.eventId);
+                ? await uncompleteEvent(popup.eventId)
+                : await completeEvent(popup.eventId);
               setPopup(null);
             }}
           />
@@ -936,6 +998,7 @@ const acceptAiEvents = async () => {
           <button style={s.arrowBtn} onClick={() => setWeekOffset(o => o + 1)}>›</button>
           <button style={s.todayBtn} onClick={() => setWeekOffset(0)}>Today</button>
         </div>
+        {taskError && <div style={s.taskErrorText}>{taskError}</div>}
 
         <div style={s.calPanel}>
           {/* Day headers */}
@@ -985,7 +1048,7 @@ const acceptAiEvents = async () => {
                             zIndex: 5,
                             ...(ev.completed
                               ? { background: 'transparent', border: `1.5px dashed ${ev.color}`, opacity: 0.45 }
-                              : { background: ev.color + '25', borderLeft: `3px solid ${ev.color}` }
+                              : { background: colorWithAlpha(ev.color, 0.15), borderLeft: `3px solid ${ev.color}` }
                             ),
                           }}
                           onClick={e => { e.stopPropagation(); setPopup({ eventId: ev.id, x: e.clientX, y: e.clientY }); }}
@@ -1031,8 +1094,8 @@ const acceptAiEvents = async () => {
                   key={label}
                   style={{
                     ...s.catRow,
-                    background: active ? color + '22' : 'transparent',
-                    border: active ? `1px solid ${color}55` : '1px solid transparent',
+                    background: active ? color + '22' : 'rgba(255,255,255,0.06)',
+                    border: active ? `1px solid ${color}55` : '1px solid rgba(255,255,255,0.10)',
                     borderRadius: 7,
                     padding: '4px 6px',
                     margin: '0 -6px',
@@ -1232,6 +1295,12 @@ const s = {
     fontSize: 12,
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  taskErrorText: {
+    color: '#ff8a8a',
+    fontFamily: GEO,
+    fontSize: 12,
+    marginTop: -4,
   },
   calPanel: {
     flex: 1,
@@ -1595,6 +1664,21 @@ const s = {
     fontSize: 11,
     cursor: 'pointer',
   },
+  
+  aiPreviewTooltip: {
+    position: 'absolute',
+    bottom: '115%',
+    left: 0,
+    background: 'rgba(16,36,50,0.95)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    padding: '6px 8px',
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 10,
+    lineHeight: 1.3,
+    width: 150,
+    zIndex: 20,
+  },
 };
 
 /* ── Modal styles ── */
@@ -1763,19 +1847,5 @@ const m = {
     padding: '8px 24px',
     fontSize: 14,
     fontFamily: GEO,
-  },
-  aiPreviewTooltip: {
-    position: 'absolute',
-    bottom: '115%',
-    left: 0,
-    background: 'rgba(16,36,50,0.95)',
-    border: `1px solid ${BORDER}`,
-    borderRadius: 8,
-    padding: '6px 8px',
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 10,
-    lineHeight: 1.3,
-    width: 150,
-    zIndex: 20,
   },
 };
