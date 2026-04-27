@@ -399,6 +399,7 @@ export default function CalendarPage() {
   const [msgs,         setMsgs]         = useState(INIT_CHAT);
   const [categories,   setCategories]   = useState([]);
   const [catError,     setCatError]     = useState('');
+  const [taskError,    setTaskError]    = useState('');
   const [showAddInput, setShowAddInput] = useState(false);
   const [newCatName,   setNewCatName]   = useState('');
   const [newCatColor,  setNewCatColor]  = useState(CAT_COLORS[0]);
@@ -536,6 +537,31 @@ export default function CalendarPage() {
     }
   };
 
+  const ensureBackendTaskForEvent = async (ev) => {
+    if (ev?.taskId) return ev.taskId;
+    const category = categories.find(c => c.label === ev.categoryLabel);
+    const saved = await saveBackendTask({
+      title: ev.title,
+      description: ev.description,
+      category,
+    });
+    setEvents(prev => prev.map(e => e.id === ev.id ? { ...e, taskId: saved.id } : e));
+    return saved.id;
+  };
+
+  const updateBackendTaskStatus = async (ev, status) => {
+    const taskId = await ensureBackendTaskForEvent(ev);
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Task status update failed (${res.status})`);
+    }
+    return taskId;
+  };
+
   const deleteEvent = async id => {
     const ev = events.find(e => e.id === id);
     if (ev?.taskId) {
@@ -556,41 +582,48 @@ export default function CalendarPage() {
     setEvents(prev => prev.filter(e => e.id !== id));
   };
 
-  const completeEvent = id => {
-    setEvents(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, completed: true } : e);
-      const ev = next.find(e => e.id === id);
-      if (ev) {
-        const entry = {
-          taskName:      ev.title,
-          dateCompleted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          timeSpent:     '—',
-          taskCategory:  ev.categoryLabel ?? 'Uncategorized',
-        };
-        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
-        const alreadyExists = existing.some(t => t.taskName === entry.taskName && t.dateCompleted === entry.dateCompleted);
-        if (!alreadyExists) {
-          localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
-        }
+  const completeEvent = async id => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+
+    setTaskError('');
+    try {
+      const taskId = await updateBackendTaskStatus(ev, 'completed');
+      const entry = {
+        taskName:      ev.title,
+        dateCompleted: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        timeSpent:     '—',
+        taskCategory:  ev.categoryLabel ?? 'Uncategorized',
+      };
+      const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+      const alreadyExists = existing.some(t => t.taskName === entry.taskName && t.dateCompleted === entry.dateCompleted);
+      if (!alreadyExists) {
+        localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
       }
-      return next;
-    });
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, taskId, completed: true } : e));
+    } catch (e) {
+      setTaskError(e?.message || 'Could not mark task complete.');
+    }
   };
 
-  const uncompleteEvent = id => {
-    setEvents(prev => {
-      const ev = prev.find(e => e.id === id);
-      if (ev) {
-        const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        try {
-          const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
-          localStorage.setItem('completedTasks', JSON.stringify(
-            existing.filter(t => !(t.taskName === ev.title && t.dateCompleted === dateCompleted))
-          ));
-        } catch {}
-      }
-      return prev.map(e => e.id === id ? { ...e, completed: false } : e);
-    });
+  const uncompleteEvent = async id => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+
+    setTaskError('');
+    try {
+      const taskId = await updateBackendTaskStatus(ev, 'not completed');
+      const dateCompleted = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      try {
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        localStorage.setItem('completedTasks', JSON.stringify(
+          existing.filter(t => !(t.taskName === ev.title && t.dateCompleted === dateCompleted))
+        ));
+      } catch {}
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, taskId, completed: false } : e));
+    } catch (e) {
+      setTaskError(e?.message || 'Could not undo task completion.');
+    }
   };
 
   const toggleFilter = label => {
@@ -753,10 +786,10 @@ export default function CalendarPage() {
             onEdit={() => { openEditModal(popup.eventId); setPopup(null); }}
             onDelete={() => { deleteEvent(popup.eventId); setPopup(null); }}
             isCompleted={!!popupEv?.completed}
-            onComplete={() => {
+            onComplete={async () => {
               popupEv?.completed
-                ? uncompleteEvent(popup.eventId)
-                : completeEvent(popup.eventId);
+                ? await uncompleteEvent(popup.eventId)
+                : await completeEvent(popup.eventId);
               setPopup(null);
             }}
           />
@@ -775,6 +808,7 @@ export default function CalendarPage() {
           <button style={s.arrowBtn} onClick={() => setWeekOffset(o => o + 1)}>›</button>
           <button style={s.todayBtn} onClick={() => setWeekOffset(0)}>Today</button>
         </div>
+        {taskError && <div style={s.taskErrorText}>{taskError}</div>}
 
         <div style={s.calPanel}>
           {/* Day headers */}
@@ -1033,6 +1067,12 @@ const s = {
     fontSize: 12,
     fontWeight: 500,
     cursor: 'pointer',
+  },
+  taskErrorText: {
+    color: '#ff8a8a',
+    fontFamily: GEO,
+    fontSize: 12,
+    marginTop: -4,
   },
   calPanel: {
     flex: 1,

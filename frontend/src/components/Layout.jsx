@@ -30,11 +30,12 @@ const NAV_SECTIONS = [
   {
     title: 'MANAGE',
     items: [
-      { label: 'Tasks',   route: '/tasks'   },
+      { label: 'Tasks',    route: '/tasks'     },
       { label: 'Log Out', route: '/landing' },
     ],
   },
 ];
+
 
 function fmtTimer(s) {
   const hh = String(Math.floor(s / 3600)).padStart(2, '0');
@@ -49,14 +50,14 @@ function getInitials(name) {
 }
 
 export default function Layout({ children }) {
-  const navigate     = useNavigate();
+  const navigate  = useNavigate();
   const { pathname } = useLocation();
-  const currentUser  = useCurrentUser();
-  const displayName  = currentUser?.displayName || currentUser?.name || '';
-  const initials     = getInitials(displayName);
+  const currentUser = useCurrentUser();
+  const displayName = currentUser?.displayName || currentUser?.name || '';
+  const initials = getInitials(displayName);
 
-  const [workingOn,   setWorkingOn]   = useState('');
-  const [timerSecs,   setTimerSecs]   = useState(0);
+  const [workingOn,  setWorkingOn]  = useState('');
+  const [timerSecs,  setTimerSecs]  = useState(0);
   const [running,     setRunning]     = useState(false);
   const [timerId,     setTimerId]     = useState(null);
   const [timerStatus, setTimerStatus] = useState(null);
@@ -71,7 +72,7 @@ export default function Layout({ children }) {
 
   const startLocalTicker = useCallback((timer) => {
     stopLocalTicker();
-    const startedAt   = new Date(timer.startTime).getTime();
+    const startedAt = new Date(timer.startTime).getTime();
     const accumulated = timer.durationSeconds || 0;
     const sync = () => {
       setTimerSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
@@ -81,6 +82,13 @@ export default function Layout({ children }) {
   }, [stopLocalTicker]);
 
   useEffect(() => () => stopLocalTicker(), [stopLocalTicker]);
+
+  useEffect(() => {
+    if (running && timerSecs > 0 && timerSecs % 60 === 0) {
+      const prev = parseInt(localStorage.getItem('honeybee_xp') || '0', 10);
+      localStorage.setItem('honeybee_xp', prev + 1);
+    }
+  }, [timerSecs, running]);
 
   const loadActiveTimer = useCallback(async () => {
     const userId = getUserId();
@@ -92,6 +100,7 @@ export default function Layout({ children }) {
       setRunning(false);
       return;
     }
+
     try {
       const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
       if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
@@ -156,6 +165,7 @@ export default function Layout({ children }) {
   const startBackendTimer = async () => {
     const userId = getUserId();
     if (!userId) throw new Error('Sign in to start the timer.');
+
     const task = await getOrCreateTimerTask(userId);
     const timerRes = await authFetch(`${API_BASE}/api/timer/start`, {
       method: 'POST',
@@ -175,25 +185,57 @@ export default function Layout({ children }) {
       const userId = getUserId();
       if (!userId) return;
       const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
-      if (!activeRes.ok) throw new Error(`Active timer failed (${activeRes.status})`);
-      idToStop = (await activeRes.json())?.id;
+      if (!activeRes.ok) {
+        throw new Error(`Active timer failed (${activeRes.status})`);
+      }
+      const active = await activeRes.json();
+      idToStop = active?.id;
     }
     if (!idToStop) return;
-    const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, { method: 'POST' });
-    if (!res.ok) { const body = await res.text(); throw new Error(body || `Stop failed (${res.status})`); }
+
+    const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Stop failed (${res.status})`);
+    }
+    return res.json();
+  };
+
+  const markTaskComplete = async (taskId) => {
+    if (!taskId) return;
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'completed' }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Task completion failed (${res.status})`);
+    }
   };
 
   const pauseBackendTimer = async () => {
     if (!timerId) return null;
-    const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, { method: 'POST' });
-    if (!res.ok) { const body = await res.text(); throw new Error(body || `Pause failed (${res.status})`); }
+    const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Pause failed (${res.status})`);
+    }
     return res.json();
   };
 
   const resumeBackendTimer = async () => {
     if (!timerId) return null;
-    const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, { method: 'POST' });
-    if (!res.ok) { const body = await res.text(); throw new Error(body || `Resume failed (${res.status})`); }
+    const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Resume failed (${res.status})`);
+    }
     return res.json();
   };
 
@@ -201,6 +243,7 @@ export default function Layout({ children }) {
     if (timerBusy) return;
     setTimerBusy(true);
     setTimerError('');
+
     try {
       if (running) {
         const timer = await pauseBackendTimer();
@@ -210,6 +253,7 @@ export default function Layout({ children }) {
         setTimerSecs(timer?.durationSeconds ?? timerSecs);
         return;
       }
+
       if (timerStatus === 'PAUSED') {
         const timer = await resumeBackendTimer();
         if (!timer) return;
@@ -219,6 +263,7 @@ export default function Layout({ children }) {
         startLocalTicker(timer);
         return;
       }
+
       const timer = await startBackendTimer();
       setTimerId(timer.id);
       setTimerStatus(timer.status);
@@ -236,7 +281,8 @@ export default function Layout({ children }) {
     setTimerBusy(true);
     setTimerError('');
     try {
-      await stopBackendTimer();
+      const stoppedTimer = await stopBackendTimer();
+      await markTaskComplete(stoppedTimer?.taskId);
       stopLocalTicker();
       setRunning(false);
       setTimerId(null);
@@ -245,6 +291,30 @@ export default function Layout({ children }) {
       navigate('/task-completed');
     } catch (e) {
       setTimerError(e?.message || 'Could not finish timer.');
+    } finally {
+      setTimerBusy(false);
+    }
+  };
+
+  const resetTimer = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
+    try {
+      if (timerId) {
+        const res = await authFetch(`${API_BASE}/api/timer/reset/${timerId}`, { method: 'POST' });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `Reset failed (${res.status})`);
+        }
+      }
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+    } catch (e) {
+      setTimerError(e?.message || 'Could not reset timer.');
     } finally {
       setTimerBusy(false);
     }
@@ -284,17 +354,29 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div
-            style={{
-              ...s.timerBox,
-              opacity: timerBusy ? 0.65 : 1,
-              cursor: timerBusy ? 'wait' : 'pointer',
-            }}
-            onClick={toggleTimer}
-            title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
-          >
-            <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
-            <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div
+              style={{
+                ...s.timerBox,
+                opacity: timerBusy ? 0.65 : 1,
+                cursor: timerBusy ? 'wait' : 'pointer',
+              }}
+              onClick={toggleTimer}
+              title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
+            >
+              <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
+              <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
+            </div>
+            <button
+              style={s.resetBtn}
+              onClick={resetTimer}
+              title="Reset timer"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
           {timerError && <span style={s.timerError}>{timerError}</span>}
 
@@ -321,10 +403,10 @@ export default function Layout({ children }) {
                       key={label}
                       style={{
                         ...s.navItem,
-                        background: active ? 'rgba(91,200,232,0.16)' : 'transparent',
-                        borderLeft: active ? `3px solid ${TEAL}` : '3px solid transparent',
-                        color:      active ? TEAL : 'rgba(255,255,255,0.75)',
-                        fontWeight: active ? 500 : 400,
+                        background:  active ? 'rgba(91,200,232,0.16)' : 'transparent',
+                        borderLeft:  active ? `3px solid ${TEAL}` : '3px solid transparent',
+                        color:       active ? TEAL : 'rgba(255,255,255,0.75)',
+                        fontWeight:  active ? 500 : 400,
                       }}
                       onClick={() => navigate(route)}
                     >
@@ -479,6 +561,20 @@ const s = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+  resetBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'background 0.15s, color 0.15s',
   },
   doneBtn: {
     display: 'flex',

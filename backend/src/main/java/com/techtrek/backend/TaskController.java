@@ -1,6 +1,7 @@
 package com.techtrek.backend;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -58,6 +59,20 @@ public class TaskController {
         task.setUserId(updatedTask.getUserId());
         task.setType(updatedTask.getType());
 
+        return taskRepository.save(task);
+    }
+
+    @PutMapping("/{id}/status")
+    public Task updateTaskStatus(@PathVariable UUID id, @RequestBody Map<String, String> body) {
+        Task task = taskRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Task not found"));
+
+        String status = body.get("status");
+        if (status == null || status.isBlank()) {
+            throw new IllegalArgumentException("Status cannot be empty");
+        }
+
+        task.setStatus(status.trim());
         return taskRepository.save(task);
     }
 

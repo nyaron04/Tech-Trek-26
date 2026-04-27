@@ -27,14 +27,14 @@ export default function Timer() {
     } catch { return 'Title of Task'; }
   })();
 
-  const [running,     setRunning]     = useState(false);
-  const [secs,        setSecs]        = useState(0);
-  const [timerId,     setTimerId]     = useState(null);
+  const [secs,    setSecs]    = useState(0);
+  const [running, setRunning] = useState(false);
+  const [timerId, setTimerId] = useState(null);
   const [timerStatus, setTimerStatus] = useState(null);
-  const [taskId,      setTaskId]      = useState(routeTaskId);
-  const [taskTitle,   setTaskTitle]   = useState(routeTaskTitle);
-  const [error,       setError]       = useState('');
-  const [busy,        setBusy]        = useState(false);
+  const [taskId,  setTaskId]  = useState(routeTaskId);
+  const [taskTitle, setTaskTitle] = useState(routeTaskTitle);
+  const [error,   setError]   = useState('');
+  const [busy,    setBusy]    = useState(false);
   const intervalRef = useRef(null);
 
   const stopLocalTicker = useCallback(() => {
@@ -44,7 +44,7 @@ export default function Timer() {
 
   const startLocalTicker = useCallback((timer) => {
     stopLocalTicker();
-    const startedAt   = new Date(timer.startTime).getTime();
+    const startedAt = new Date(timer.startTime).getTime();
     const accumulated = timer.durationSeconds || 0;
     const sync = () => {
       setSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
@@ -75,6 +75,7 @@ export default function Timer() {
       setSecs(0);
       return;
     }
+
     try {
       const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
       if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
@@ -117,8 +118,15 @@ export default function Timer() {
 
   const startTimer = async () => {
     const userId = getUserId();
-    if (!userId) { setError('You need to be signed in to start the timer.'); return null; }
-    if (!taskId)  { setError('Pick a task first — open Tasks and click "Start timer".'); return null; }
+    if (!userId) {
+      setError('You need to be signed in to start the timer.');
+      return null;
+    }
+    if (!taskId) {
+      setError('Pick a task first — open Tasks and click "Start timer".');
+      return null;
+    }
+
     setError('');
     setBusy(true);
     try {
@@ -151,12 +159,32 @@ export default function Timer() {
         const userId = getUserId();
         if (!userId) return false;
         const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
-        if (!activeRes.ok) throw new Error(`Active timer failed (${activeRes.status})`);
-        idToStop = (await activeRes.json())?.id;
+        if (!activeRes.ok) {
+          throw new Error(`Active timer failed (${activeRes.status})`);
+        }
+        const active = await activeRes.json();
+        idToStop = active?.id;
       }
       if (!idToStop) return true;
-      const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, { method: 'POST' });
-      if (!res.ok) { const body = await res.text(); throw new Error(body || `Stop failed (${res.status})`); }
+
+      const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Stop failed (${res.status})`);
+      }
+      const stoppedTimer = await res.json();
+      if (stoppedTimer?.taskId) {
+        const statusRes = await authFetch(`${API_BASE}/tasks/${stoppedTimer.taskId}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'completed' }),
+        });
+        if (!statusRes.ok) {
+          const body = await statusRes.text();
+          throw new Error(body || `Task completion failed (${statusRes.status})`);
+        }
+      }
       setTimerId(null);
       setTimerStatus(null);
       setRunning(false);
@@ -174,8 +202,13 @@ export default function Timer() {
     setError('');
     setBusy(true);
     try {
-      const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, { method: 'POST' });
-      if (!res.ok) { const body = await res.text(); throw new Error(body || `Pause failed (${res.status})`); }
+      const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Pause failed (${res.status})`);
+      }
       const timer = await res.json();
       setTimerStatus(timer.status);
       setRunning(false);
@@ -195,8 +228,13 @@ export default function Timer() {
     setError('');
     setBusy(true);
     try {
-      const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, { method: 'POST' });
-      if (!res.ok) { const body = await res.text(); throw new Error(body || `Resume failed (${res.status})`); }
+      const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Resume failed (${res.status})`);
+      }
       const timer = await res.json();
       setTimerStatus(timer.status);
       setRunning(true);
@@ -212,10 +250,19 @@ export default function Timer() {
 
   const toggle = async () => {
     if (busy) return;
-    if (running)                    { await pauseTimer();  return; }
-    if (timerStatus === 'PAUSED')   { await resumeTimer(); return; }
+
+    if (running) {
+      await pauseTimer();
+      return;
+    }
+
+    if (timerStatus === 'PAUSED') {
+      await resumeTimer();
+      return;
+    }
+
     const timer = await startTimer();
-    if (!timer) return;
+    if (!timer) return; // backend failed; don't tick locally
     startLocalTicker(timer);
     setRunning(true);
   };
@@ -252,6 +299,30 @@ export default function Timer() {
     navigate('/task-completed');
   };
 
+  const reset = async () => {
+    if (busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      if (timerId) {
+        const res = await authFetch(`${API_BASE}/api/timer/reset/${timerId}`, { method: 'POST' });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `Reset failed (${res.status})`);
+        }
+      }
+      setTimerId(null);
+      setTimerStatus(null);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(0);
+    } catch (e) {
+      setError(e?.message || 'Could not reset the timer.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div style={s.root}>
       <style>{`
@@ -259,15 +330,20 @@ export default function Timer() {
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       `}</style>
 
+      {/* Layered backgrounds */}
       <div style={s.bg} />
       <img src={bgForest} alt="" style={s.forest} />
+
+      {/* Plant growth strip */}
       <img src={plantsImg} alt="plant growth stages" style={s.plants} />
 
+      {/* Top nav bar */}
       <div style={s.topBar}>
         <button style={s.navBtn} onClick={() => navigate(-1)}>{'< Back'}</button>
         <button style={s.navBtn} onClick={finish}>{'Finish! >'}</button>
       </div>
 
+      {/* Center content */}
       <div style={s.center}>
         <h2 style={s.taskTitle}>{taskTitle}</h2>
         <div style={s.timeDisplay}>{fmtTime(secs)}</div>
@@ -294,6 +370,13 @@ export default function Timer() {
           </p>
         )}
         {error && <p style={s.errorText}>{error}</p>}
+        <button style={s.resetBtn} onClick={reset}>
+          <svg width="15" height="15" viewBox="0 0 13 13" fill="none" style={{ marginRight: 6 }}>
+            <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Reset
+        </button>
       </div>
     </div>
   );
@@ -411,6 +494,7 @@ const s = {
   playIcon: {
     fontSize: 18,
   },
+
   hint: {
     marginTop: 12,
     fontFamily: GEO,
@@ -418,6 +502,7 @@ const s = {
     color: '#fff',
     textShadow: '0 1px 4px rgba(0,0,0,0.35)',
   },
+
   linkBtn: {
     background: 'none',
     border: 'none',
@@ -429,6 +514,7 @@ const s = {
     textDecoration: 'underline',
     padding: 0,
   },
+
   errorText: {
     marginTop: 12,
     fontFamily: GEO,
@@ -437,5 +523,23 @@ const s = {
     textShadow: '0 1px 4px rgba(0,0,0,0.4)',
     maxWidth: 480,
     textAlign: 'center',
+  },
+  resetBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    padding: '0 28px',
+    height: 42,
+    borderRadius: 40,
+    background: 'rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.25)',
+    fontFamily: GEO,
+    fontWeight: 600,
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.75)',
+    cursor: 'pointer',
+    letterSpacing: 0.3,
+    marginTop: 4,
   },
 };
