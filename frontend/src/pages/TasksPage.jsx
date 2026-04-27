@@ -114,6 +114,7 @@ export default function TasksPage() {
     try { return new Set(JSON.parse(localStorage.getItem('completedTaskNames') || '[]')); }
     catch { return new Set(); }
   });
+  const [hoveredDelete, setHoveredDelete] = useState(null);
 
   const dateLabel = fmtDate(startDate);
   const timeLabel = `${fmtTime(startDate)} – ${fmtTime(endDate)}`;
@@ -256,6 +257,14 @@ export default function TasksPage() {
 
   function categoryById(id) {
     return categories.find(c => c.id === id);
+  }
+
+  function deleteTask(taskId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem('honeybee_tasks') || '[]');
+      localStorage.setItem('honeybee_tasks', JSON.stringify(stored.filter(t => t.id !== taskId)));
+    } catch {}
+    setTasks(prev => prev.filter(t => t.id !== taskId));
   }
 
   function startTimerFor(task) {
@@ -510,13 +519,38 @@ export default function TasksPage() {
                     <span style={s.taskMeta}>{task.type} · {isDone ? 'completed' : task.status}</span>
                   </span>
                 </div>
-                <button
-                  style={s.startTimerBtn}
-                  onClick={() => startTimerFor(task)}
-                  type="button"
-                >
-                  ▶ Start timer
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <button
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: 6,
+                      color: hoveredDelete === task.id ? '#FF4757' : 'rgba(255,255,255,0.3)',
+                      transition: 'color 0.15s',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    onClick={() => deleteTask(task.id)}
+                    onMouseEnter={() => setHoveredDelete(task.id)}
+                    onMouseLeave={() => setHoveredDelete(null)}
+                    type="button"
+                    title="Delete task"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 14 14" fill="none">
+                      <path d="M2 4h10M5 4V2.5h4V4M5.5 6.5v4M8.5 6.5v4M3 4l.8 7.5h6.4L11 4"
+                        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    style={s.startTimerBtn}
+                    onClick={() => startTimerFor(task)}
+                    type="button"
+                  >
+                    ▶ Start timer
+                  </button>
+                </div>
               </div>
             );
           })}
