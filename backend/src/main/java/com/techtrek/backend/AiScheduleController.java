@@ -47,12 +47,50 @@ public class AiScheduleController {
         List<TimerEntry> timerEntries = timerEntryRepository.findByUserIdOrderByCreatedAtDesc(request.getUserId());
 
         String prompt = buildPrompt(tasks, timerEntries)
+                + "\n\nCURRENT CALENDAR EVENTS:\n"
+                + buildCalendarEventText(request.getCalendarEvents())
                 + "\n\nUser message:\n"
                 + request.getMessage()
-                + "\n\nRespond directly to the user's message using the task and timer history above.";
+                + """
 
+                Based on the user's tasks, timer history, calendar events, and message, suggest calendar time blocks.
+
+                Return ONLY valid JSON in this exact format:
+                {
+                "message": "short explanation",
+                "suggestedBlocks": [
+                    {
+                    "title": "task title",
+                    "startTime": "2026-04-27T14:00:00",
+                    "endTime": "2026-04-27T15:00:00",
+                    "category": "Study"
+                    }
+                ]
+                }
+
+                Do not include markdown.
+                Do not include text outside the JSON.
+                Avoid overlapping existing calendar events.
+                """;
         return geminiService.generateRecommendation(prompt);
     }
+
+    private String buildCalendarEventText(List<CalendarEventDto> events) {
+    if (events == null || events.isEmpty()) {
+        return "No existing calendar events found.\n";
+    }
+
+    StringBuilder text = new StringBuilder();
+
+    for (CalendarEventDto event : events) {
+        text.append("- Title: ").append(event.getTitle()).append("\n");
+        text.append("  Start Time: ").append(event.getStartTime()).append("\n");
+        text.append("  Category: ").append(event.getCategory()).append("\n\n");
+    }
+
+    return text.toString();
+    }
+
     private String buildPrompt(List<Task> tasks, List<TimerEntry> timerEntries) {
         StringBuilder prompt = new StringBuilder();
 
@@ -87,9 +125,6 @@ public class AiScheduleController {
             }
         }
 
-        prompt.append("Recommendation format:\n");
-        prompt.append("Write 1 short paragraph, then 3 bullet points.\n");
-        prompt.append("Mention patterns from the timer/task data when possible.\n");
 
         return prompt.toString();
     }

@@ -28,7 +28,12 @@ public class GeminiService {
             return text;
 
         } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("Gemini error: " + e.getMessage());
+
+            if (e.getMessage().contains("Quota exceeded")) {
+                return "You're sending requests a bit too fast 😅 Give me a few seconds and try again!";
+            }
+
             return "AI recommendation is temporarily unavailable. Please try again later.";
         }
     }
