@@ -33,6 +33,8 @@ function getWeekDates(offset = 0) {
 
 const HOURS      = Array.from({ length: 24 }, (_, i) => i); // 12 AM – 11 PM
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const CELL_H     = 52; // px — must match s.timeLabel / s.gridCell height
+const TIME_COL_W = 54; // px — must match gridTemplateColumns first value
 
 // Safely converts any CSS color string to rgba() with the given alpha.
 // Handles 6-digit hex (#RRGGBB), 8-digit hex (#RRGGBBAA), and falls back to TEAL.
@@ -395,6 +397,7 @@ function TaskModal({ onClose, initialDate, categories, onAddTask, initialData, e
 // ── Calendar Page ─────────────────────────────────────────────────────────────
 export default function CalendarPage() {
   const [weekOffset,   setWeekOffset]   = useState(0);
+  const [now,          setNow]          = useState(() => new Date());
   const [chatInput,    setChatInput]    = useState('');
   const [msgs,         setMsgs]         = useState(INIT_CHAT);
   const [categories,   setCategories]   = useState([]);
@@ -432,6 +435,11 @@ export default function CalendarPage() {
     apply();
     window.addEventListener('storage', apply);
     return () => window.removeEventListener('storage', apply);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
   }, []);
 
   const loadCategories = useCallback(async () => {
@@ -1027,7 +1035,48 @@ const acceptAiEvents = async () => {
 
           {/* Scrollable time grid */}
           <div style={s.gridScroll}>
-            <div style={s.grid}>
+            <div style={{ ...s.grid, position: 'relative' }}>
+              {/* Current-time indicator — only shown on the current week */}
+              {weekOffset === 0 && (() => {
+                const topPx = (now.getHours() * 60 + now.getMinutes()) / (24 * 60) * (24 * CELL_H);
+                return (
+                  <div style={{
+                    position: 'absolute',
+                    top: topPx,
+                    left: 0,
+                    right: 0,
+                    height: 0,
+                    zIndex: 20,
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}>
+                    <div style={{
+                      width: TIME_COL_W,
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                    }}>
+                      <div style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: '50%',
+                        background: '#FF4757',
+                        flexShrink: 0,
+                        marginRight: -5,
+                        boxShadow: '0 0 4px rgba(255,71,87,0.6)',
+                      }} />
+                    </div>
+                    <div style={{
+                      flex: 1,
+                      height: 2,
+                      background: '#FF4757',
+                      opacity: 0.85,
+                    }} />
+                  </div>
+                );
+              })()}
               {HOURS.flatMap(hour => [
                 <div key={`t${hour}`} style={s.timeLabel}>{fmtHour(hour)}</div>,
                 ...weekDates.map((date, di) => {
@@ -1360,7 +1409,7 @@ const s = {
   },
   timeLabel: {
     padding: '6px 6px 0',
-    height: 52,
+    height: CELL_H,
     display: 'flex',
     alignItems: 'flex-start',
     fontSize: 10,
@@ -1371,7 +1420,7 @@ const s = {
     letterSpacing: 0.3,
   },
   gridCell: {
-    height: 52,
+    height: CELL_H,
     borderRight: `1px solid rgba(255,255,255,0.055)`,
     borderBottom: `1px solid rgba(255,255,255,0.05)`,
     position: 'relative',
