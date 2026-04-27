@@ -93,6 +93,23 @@ public class TimerController {
         return ResponseEntity.ok(updated);
     }
 
+    @PostMapping("/reset/{timerId}")
+    public ResponseEntity<?> resetTimer(@PathVariable UUID timerId) {
+        Optional<TimerEntry> timerOptional = timerEntryRepository.findById(timerId);
+
+        if (timerOptional.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        TimerEntry timerEntry = timerOptional.get();
+        if (!RUNNING.equals(timerEntry.getStatus()) && !PAUSED.equals(timerEntry.getStatus())) {
+            return ResponseEntity.badRequest().body("Timer is not active.");
+        }
+
+        timerEntryRepository.delete(timerEntry);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/stop/{timerId}")
     public ResponseEntity<?> stopTimer(@PathVariable UUID timerId) {
         Optional<TimerEntry> timerOptional = timerEntryRepository.findById(timerId);

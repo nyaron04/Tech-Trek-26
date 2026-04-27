@@ -16,10 +16,16 @@ function fmtTime(s) {
 }
 
 export default function Timer() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const routeTaskId    = location.state?.taskId || null;
-  const routeTaskTitle = location.state?.taskTitle || 'Title of Task';
+  const navigate       = useNavigate();
+  const location       = useLocation();
+  const routeTaskId    = location.state?.taskId    || null;
+  const routeTaskTitle = (() => {
+    if (location.state?.taskTitle) return location.state.taskTitle;
+    try {
+      const a = JSON.parse(localStorage.getItem('honeybee_active_task') || '{}');
+      return a.taskName || 'Title of Task';
+    } catch { return 'Title of Task'; }
+  })();
 
   const [secs,    setSecs]    = useState(0);
   const [running, setRunning] = useState(false);
@@ -263,7 +269,58 @@ export default function Timer() {
 
   const finish = async () => {
     const stopped = await endTimer();
-    if (stopped) navigate('/task-completed');
+    if (!stopped) return;
+
+    try {
+      const active = JSON.parse(localStorage.getItem('honeybee_active_task') || '{}');
+      const name     = active.taskName || taskTitle;
+      const category = active.taskCategory || 'Uncategorized';
+
+      if (name && name !== 'Title of Task') {
+        const now     = new Date();
+        const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const h       = Math.floor(secs / 3600);
+        const m       = Math.floor((secs % 3600) / 60);
+        const timeStr = h > 0 ? `${h} hr ${m} min` : `${m} min`;
+
+        const entry = { taskName: name, dateCompleted: dateStr, timeSpent: timeStr, taskCategory: category };
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        if (!existing.some(t => t.taskName === name)) {
+          localStorage.setItem('completedTasks', JSON.stringify([entry, ...existing]));
+        }
+
+        const names = JSON.parse(localStorage.getItem('completedTaskNames') || '[]');
+        if (!names.includes(name)) {
+          localStorage.setItem('completedTaskNames', JSON.stringify([...names, name]));
+        }
+      }
+    } catch {}
+
+    navigate('/task-completed');
+  };
+
+  const reset = async () => {
+    if (busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      if (timerId) {
+        const res = await authFetch(`${API_BASE}/api/timer/reset/${timerId}`, { method: 'POST' });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `Reset failed (${res.status})`);
+        }
+      }
+      setTimerId(null);
+      setTimerStatus(null);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(0);
+    } catch (e) {
+      setError(e?.message || 'Could not reset the timer.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -277,7 +334,7 @@ export default function Timer() {
       <div style={s.bg} />
       <img src={bgForest} alt="" style={s.forest} />
 
-      {/* Plant growth strip — sits above the treeline */}
+      {/* Plant growth strip */}
       <img src={plantsImg} alt="plant growth stages" style={s.plants} />
 
       {/* Top nav bar */}
@@ -313,6 +370,13 @@ export default function Timer() {
           </p>
         )}
         {error && <p style={s.errorText}>{error}</p>}
+        <button style={s.resetBtn} onClick={reset}>
+          <svg width="15" height="15" viewBox="0 0 13 13" fill="none" style={{ marginRight: 6 }}>
+            <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          Reset
+        </button>
       </div>
     </div>
   );
@@ -329,7 +393,6 @@ const s = {
     display: 'flex',
     flexDirection: 'column',
   },
-
   bg: {
     position: 'absolute',
     inset: 0,
@@ -338,7 +401,6 @@ const s = {
     backgroundPosition: 'center top',
     zIndex: 0,
   },
-
   forest: {
     position: 'fixed',
     bottom: 0,
@@ -351,7 +413,6 @@ const s = {
     pointerEvents: 'none',
     display: 'block',
   },
-
   plants: {
     position: 'fixed',
     bottom: '-3vh',
@@ -362,7 +423,6 @@ const s = {
     zIndex: 2,
     pointerEvents: 'none',
   },
-
   topBar: {
     position: 'relative',
     zIndex: 10,
@@ -371,7 +431,6 @@ const s = {
     alignItems: 'center',
     padding: '22px 36px',
   },
-
   navBtn: {
     background: 'transparent',
     border: 'none',
@@ -383,7 +442,6 @@ const s = {
     letterSpacing: 0.3,
     textShadow: '0 1px 4px rgba(0,0,0,0.3)',
   },
-
   center: {
     position: 'relative',
     zIndex: 10,
@@ -395,7 +453,6 @@ const s = {
     paddingTop: '6vh',
     gap: 12,
   },
-
   taskTitle: {
     fontFamily: GEO,
     fontWeight: 700,
@@ -404,7 +461,6 @@ const s = {
     textShadow: '0 2px 8px rgba(0,0,0,0.25)',
     letterSpacing: 0.2,
   },
-
   timeDisplay: {
     fontFamily: GEO,
     fontWeight: 800,
@@ -415,7 +471,6 @@ const s = {
     lineHeight: 1.1,
     marginTop: 8,
   },
-
   startBtn: {
     display: 'flex',
     alignItems: 'center',
@@ -436,7 +491,6 @@ const s = {
     transition: 'transform 0.1s, box-shadow 0.1s',
     letterSpacing: 0.3,
   },
-
   playIcon: {
     fontSize: 18,
   },
@@ -469,5 +523,23 @@ const s = {
     textShadow: '0 1px 4px rgba(0,0,0,0.4)',
     maxWidth: 480,
     textAlign: 'center',
+  },
+  resetBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 0,
+    padding: '0 28px',
+    height: 42,
+    borderRadius: 40,
+    background: 'rgba(255,255,255,0.12)',
+    border: '1px solid rgba(255,255,255,0.25)',
+    fontFamily: GEO,
+    fontWeight: 600,
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.75)',
+    cursor: 'pointer',
+    letterSpacing: 0.3,
+    marginTop: 4,
   },
 };

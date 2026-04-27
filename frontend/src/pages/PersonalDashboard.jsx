@@ -94,17 +94,26 @@ export default function PersonalDashboard() {
   const userInitials = getInitials(userName);
 
   const bioKey = currentUser?.email ? `honeybee_bio_${currentUser.email}` : null;
-  const [xp, setXp] = useState(() => parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
+  const [xp, setXp] = useState(() => {
+    try {
+      const timer = JSON.parse(localStorage.getItem('honeybee_timer') || '{}');
+      return Math.floor((timer.elapsed || 0) / 60000);
+    } catch { return 0; }
+  });
   const [bio, setBio] = useState('');
   const [pageSize, setPageSize] = useState(5);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
   const [completedTasks, setCompletedTasks] = useState([]);
+  const [hoveredRow, setHoveredRow] = useState(null);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setXp(parseInt(localStorage.getItem('honeybee_xp') || '0', 10));
-    }, 1000);
-    return () => clearInterval(id);
+    const readXp = () => {
+      try {
+        const timer = JSON.parse(localStorage.getItem('honeybee_timer') || '{}');
+        setXp(Math.floor((timer.elapsed || 0) / 60000));
+      } catch { setXp(0); }
+    };
+    readXp();
   }, []);
 
   useEffect(() => {
@@ -118,6 +127,12 @@ export default function PersonalDashboard() {
       setCompletedTasks([]);
     }
   }, []);
+
+  const deleteCompletedTask = i => {
+    const updated = completedTasks.filter((_, idx) => idx !== i);
+    localStorage.setItem('completedTasks', JSON.stringify(updated));
+    setCompletedTasks(updated);
+  };
 
   const visibleTasks = completedTasks.slice(0, pageSize);
 
@@ -208,7 +223,12 @@ export default function PersonalDashboard() {
                 No completed tasks yet
               </div>
             ) : visibleTasks.map((task, i) => (
-              <div key={i} style={s.taskRow}>
+              <div
+                key={i}
+                style={s.taskRow}
+                onMouseEnter={() => setHoveredRow(i)}
+                onMouseLeave={() => setHoveredRow(null)}
+              >
                 <span style={{ flex: 3, fontWeight: 500 }}>{task.taskName}</span>
                 <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.dateCompleted}</span>
                 <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.timeSpent}</span>
@@ -222,6 +242,24 @@ export default function PersonalDashboard() {
                     {task.taskCategory}
                   </span>
                 </span>
+                <button
+                  onClick={() => deleteCompletedTask(i)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    color: 'rgba(255,255,255,0.35)',
+                    opacity: hoveredRow === i ? 1 : 0,
+                    transition: 'opacity 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 4h10M5 4V2.5h4V4M5.5 6.5v4M8.5 6.5v4M3 4l.8 7.5h6.4L11 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               </div>
             ))}
           </div>

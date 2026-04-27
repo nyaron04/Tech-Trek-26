@@ -24,8 +24,7 @@ const NAV_SECTIONS = [
   {
     title: 'ANALYZE',
     items: [
-      { label: 'Reports',  route: '/dashboard' },
-      { label: 'Progress', route: '/dashboard' },
+      { label: 'Progress', route: '/progress' },
     ],
   },
   {
@@ -297,6 +296,30 @@ export default function Layout({ children }) {
     }
   };
 
+  const resetTimer = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
+    try {
+      if (timerId) {
+        const res = await authFetch(`${API_BASE}/api/timer/reset/${timerId}`, { method: 'POST' });
+        if (!res.ok) {
+          const body = await res.text();
+          throw new Error(body || `Reset failed (${res.status})`);
+        }
+      }
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+    } catch (e) {
+      setTimerError(e?.message || 'Could not reset timer.');
+    } finally {
+      setTimerBusy(false);
+    }
+  };
+
   return (
     <div style={s.root}>
       <style>{`
@@ -331,17 +354,29 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div
-            style={{
-              ...s.timerBox,
-              opacity: timerBusy ? 0.65 : 1,
-              cursor: timerBusy ? 'wait' : 'pointer',
-            }}
-            onClick={toggleTimer}
-            title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
-          >
-            <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
-            <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div
+              style={{
+                ...s.timerBox,
+                opacity: timerBusy ? 0.65 : 1,
+                cursor: timerBusy ? 'wait' : 'pointer',
+              }}
+              onClick={toggleTimer}
+              title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
+            >
+              <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
+              <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
+            </div>
+            <button
+              style={s.resetBtn}
+              onClick={resetTimer}
+              title="Reset timer"
+            >
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
           </div>
           {timerError && <span style={s.timerError}>{timerError}</span>}
 
@@ -526,6 +561,20 @@ const s = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+  resetBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: '50%',
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'background 0.15s, color 0.15s',
   },
   doneBtn: {
     display: 'flex',

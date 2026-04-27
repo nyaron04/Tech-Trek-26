@@ -9,6 +9,7 @@ import TasksPage        from './pages/TasksPage';
 import TaskCompleted    from './pages/TaskCompleted';
 import Timer            from './pages/Timer';
 import CalendarPage     from './pages/CalendarPage';
+import ProgressPage     from './pages/ProgressPage';
 
 import './App.css';
 
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/task-completed" element={<TaskCompleted />} />
         <Route path="/timer"          element={<Timer />} />
         <Route path="/calendar"       element={<CalendarPage />} />
+        <Route path="/progress"       element={<ProgressPage />} />
 
         {/* Fallback */}
         <Route path="*"               element={<Navigate to="/" replace />} />
