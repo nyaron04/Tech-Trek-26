@@ -24,8 +24,7 @@ const NAV_SECTIONS = [
   {
     title: 'ANALYZE',
     items: [
-      { label: 'Reports',  route: '/dashboard' },
-      { label: 'Progress', route: '/dashboard' },
+      { label: 'Progress', route: '/progress' },
     ],
   },
   {

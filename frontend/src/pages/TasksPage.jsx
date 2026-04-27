@@ -16,6 +16,17 @@ const WHITE15 = 'rgba(255,255,255,0.15)';
 const WHITE08 = 'rgba(255,255,255,0.08)';
 const BORDER = 'rgba(255,255,255,0.25)';
 
+function colorWithAlpha(hex, alpha) {
+  if (!hex) return `rgba(91,200,232,${alpha})`;
+  const h = hex.replace(/^#/, '');
+  const digits = /^[0-9a-fA-F]{6}/.test(h) ? h.slice(0, 6) : null;
+  if (!digits) return `rgba(91,200,232,${alpha})`;
+  const r = parseInt(digits.slice(0, 2), 16);
+  const g = parseInt(digits.slice(2, 4), 16);
+  const b = parseInt(digits.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 const TYPES = ['Task', 'Project', 'Homework'];
 
 // Color palette assigned to new categories on a round-robin basis.
@@ -99,6 +110,10 @@ export default function TasksPage() {
   const [showNewCatInput, setShowNewCatInput] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [creatingCat, setCreatingCat] = useState(false);
+  const [completedNames, setCompletedNames] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('completedTaskNames') || '[]')); }
+    catch { return new Set(); }
+  });
 
   const dateLabel = fmtDate(startDate);
   const timeLabel = `${fmtTime(startDate)} – ${fmtTime(endDate)}`;
@@ -147,6 +162,16 @@ export default function TasksPage() {
     loadTasks();
     loadCategories();
   }, [loadTasks, loadCategories]);
+
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setCompletedNames(new Set(JSON.parse(localStorage.getItem('completedTaskNames') || '[]')));
+      } catch {}
+    };
+    window.addEventListener('storage', sync);
+    return () => window.removeEventListener('storage', sync);
+  }, []);
 
   async function handleCreateCategory() {
     const userId = getUserId();
@@ -234,6 +259,11 @@ export default function TasksPage() {
   }
 
   function startTimerFor(task) {
+    const cat = categoryById(task.categoryId);
+    localStorage.setItem('honeybee_active_task', JSON.stringify({
+      taskName: task.title,
+      taskCategory: cat?.name || 'Uncategorized',
+    }));
     navigate('/timer', {
       state: { taskId: task.id, taskTitle: task.title },
     });
@@ -454,23 +484,30 @@ export default function TasksPage() {
           )}
 
           {tasks.map(task => {
-            const cat = categoryById(task.categoryId);
+            const cat      = categoryById(task.categoryId);
             const catColor = cat?.color || '#5BC8E8';
+            const isDone   = completedNames.has(task.title);
             return (
-              <div key={task.id} style={s.taskRow}>
-                <div style={s.taskInfo}>
-                  <span style={s.taskTitleText}>{task.title}</span>
+              <div key={task.id} style={{ ...s.taskRow, ...(isDone ? { filter: 'brightness(0.6)' } : {}) }}>
+                <div style={{ ...s.taskInfo, textDecoration: isDone ? 'line-through' : 'none' }}>
+                  <span style={s.taskTitleText}>
+                    {task.title}
+                  </span>
                   {task.description && (
                     <span style={s.taskMeta}>{task.description}</span>
                   )}
                   <span style={s.taskMetaLine}>
                     {cat && (
-                      <span style={{ ...s.taskCatChip, background: `${catColor}33`, color: catColor, borderColor: `${catColor}88` }}>
-                        <span style={{ ...s.catDot, background: catColor }} />
+                      <span style={{
+                        ...s.taskCatChip,
+                        background: colorWithAlpha(catColor, 0.16),
+                        color: catColor,
+                        border: `1px solid ${colorWithAlpha(catColor, 0.4)}`,
+                      }}>
                         {cat.name}
                       </span>
                     )}
-                    <span style={s.taskMeta}>{task.type} · {task.status}</span>
+                    <span style={s.taskMeta}>{task.type} · {isDone ? 'completed' : task.status}</span>
                   </span>
                 </div>
                 <button
@@ -723,7 +760,6 @@ const s = {
     gap: 6,
     padding: '2px 10px',
     borderRadius: 12,
-    border: '1px solid',
     fontFamily: GEO,
     fontSize: 11,
     fontWeight: 500,
