@@ -3,9 +3,11 @@
 
 import { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
-import { useCurrentUser } from '../auth';
+import { useCurrentUser, authFetch, getUserId, __internal } from '../auth';
 import gnomeImg from '../assets/Gnome.png';
 import { colors, fonts, shadow } from '../styles/theme';
+
+const API_BASE = __internal.API_BASE;
 
 const GEO = "'Georama', 'Inter', sans-serif";
 const TEAL = '#5BC8E8';
@@ -23,12 +25,6 @@ const STATIC_USER = {
   avatar: gnomeImg,
 };
 
-const RING_STATS = [
-  { label: 'All Tasks',    value: 98, max: 100, color: '#7B6FE8' },
-  { label: 'Academic',     value: 42, max: 100, color: '#9B6FE8' },
-  { label: 'Professional', value: 37, max: 100, color: TEAL },
-  { label: 'Clubs',        value: 12, max: 100, color: '#6FA8E8' },
-];
 
 let TASKS = [];
 // const TASKS = [
@@ -105,6 +101,7 @@ export default function PersonalDashboard() {
   const [showSizeMenu, setShowSizeMenu] = useState(false);
   const [completedTasks, setCompletedTasks] = useState([]);
   const [hoveredRow, setHoveredRow] = useState(null);
+  const [ringStats, setRingStats] = useState([]);
 
   useEffect(() => {
     const readXp = () => {
@@ -121,11 +118,47 @@ export default function PersonalDashboard() {
   }, [bioKey]);
 
   useEffect(() => {
+    let completedList = [];
+    let allTasks = [];
     try {
-      setCompletedTasks(JSON.parse(localStorage.getItem('completedTasks') || '[]'));
+      completedList = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+      setCompletedTasks(completedList);
     } catch {
       setCompletedTasks([]);
     }
+    try {
+      allTasks = JSON.parse(localStorage.getItem('honeybee_tasks') || '[]');
+    } catch {}
+
+    const totalAll = allTasks.length;
+    const doneAll  = allTasks.filter(t => t.completed).length;
+
+    const userId = getUserId();
+    if (!userId) {
+      setRingStats([{ label: 'All Tasks', value: doneAll, max: Math.max(totalAll, 1), color: '#7B6FE8' }]);
+      return;
+    }
+
+    authFetch(`${API_BASE}/categories?userId=${encodeURIComponent(userId)}`)
+      .then(res => res.ok ? res.json() : [])
+      .then(list => {
+        const cats = list.map(c => ({ label: c.name, color: c.color || TEAL }));
+        setRingStats([
+          { label: 'All Tasks', value: doneAll, max: Math.max(totalAll, 1), color: '#7B6FE8' },
+          ...cats.map(cat => {
+            const catTasks = allTasks.filter(t => t.categoryLabel === cat.label);
+            return {
+              label: cat.label,
+              color: cat.color,
+              value: catTasks.filter(t => t.completed).length,
+              max: Math.max(catTasks.length, 1),
+            };
+          }),
+        ]);
+      })
+      .catch(() => {
+        setRingStats([{ label: 'All Tasks', value: doneAll, max: Math.max(totalAll, 1), color: '#7B6FE8' }]);
+      });
   }, []);
 
   const deleteCompletedTask = i => {
@@ -178,7 +211,7 @@ export default function PersonalDashboard() {
 
           {/* Ring stats row */}
           <div style={s.ringRow}>
-            {RING_STATS.map(r => (
+            {ringStats.map(r => (
               <Ring key={r.label} value={r.value} max={r.max} color={r.color} label={r.label} size={88} />
             ))}
           </div>
