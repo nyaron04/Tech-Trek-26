@@ -1,8 +1,10 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import Layout from '../components/Layout';
 import { yellowBtn } from '../styles/theme';
+import { authFetch, getUserId } from '../auth';
 
 const GEO = "'Georama', 'Inter', sans-serif";
 const WHITE = '#fff';
@@ -62,6 +64,7 @@ function fmtTime(date) {
 }
 
 export default function TasksPage() {
+  const navigate = useNavigate();
   const [taskType, setTaskType] = useState('Task');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -81,9 +84,82 @@ export default function TasksPage() {
   const startPickerRef = useRef(null);
   const deadlinePickerRef = useRef(null);
 
+  const [tasks, setTasks] = useState([]);
+  const [tasksError, setTasksError] = useState('');
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
   const dateLabel = fmtDate(startDate);
   const timeLabel = `${fmtTime(startDate)} – ${fmtTime(endDate)}`;
   const deadlineLabel = deadline ? fmtDate(deadline) : 'Add deadline';
+
+  const loadTasks = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      setTasks([]);
+      setTasksError('Sign in to see your tasks.');
+      return;
+    }
+    setTasksError('');
+    try {
+      const res = await authFetch(`http://localhost:8080/tasks`);
+      if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
+      const all = await res.json();
+      setTasks(all.filter(t => t.userId === userId));
+    } catch (e) {
+      setTasksError(e?.message || 'Could not load tasks.');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTasks();
+  }, [loadTasks]);
+
+  async function handleAddTask() {
+    const userId = getUserId();
+    if (!userId) {
+      setFormError('Sign in to create a task.');
+      return;
+    }
+    if (!title.trim()) {
+      setFormError('Title is required.');
+      return;
+    }
+    setFormError('');
+    setSubmitting(true);
+    try {
+      const res = await authFetch(`http://localhost:8080/tasks`, {
+        method: 'POST',
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim(),
+          status: 'not completed',
+          categoryId: (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : '00000000-0000-0000-0000-000000000000',
+          userId,
+          type: taskType.toLowerCase(),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Add failed (${res.status})`);
+      }
+      setTitle('');
+      setDescription('');
+      await loadTasks();
+    } catch (e) {
+      setFormError(e?.message || 'Could not create task.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function startTimerFor(task) {
+    navigate('/timer', {
+      state: { taskId: task.id, taskTitle: task.title },
+    });
+  }
 
   return (
     <Layout>
@@ -206,8 +282,55 @@ export default function TasksPage() {
               <CalendarBtnIcon />
               <span>Select Calendar</span>
             </button>
-            <button style={s.addTaskBtn}>Add Task</button>
+            <button
+              style={{
+                ...s.addTaskBtn,
+                opacity: submitting || !title.trim() ? 0.6 : 1,
+                cursor: submitting ? 'wait' : 'pointer',
+              }}
+              onClick={handleAddTask}
+              disabled={submitting || !title.trim()}
+            >
+              {submitting ? 'Saving…' : 'Add Task'}
+            </button>
           </div>
+
+          {formError && <p style={s.errorText}>{formError}</p>}
+        </div>
+
+        {/* Tasks list */}
+        <div style={s.listCard}>
+          <div style={s.listHeader}>
+            <h2 style={s.listTitle}>Your tasks</h2>
+            <button style={s.refreshBtn} onClick={loadTasks} type="button">↻ Refresh</button>
+          </div>
+
+          {tasksError && <p style={s.errorText}>{tasksError}</p>}
+
+          {tasks.length === 0 && !tasksError && (
+            <p style={s.emptyText}>No tasks yet — create one above.</p>
+          )}
+
+          {tasks.map(task => (
+            <div key={task.id} style={s.taskRow}>
+              <div style={s.taskInfo}>
+                <span style={s.taskTitleText}>{task.title}</span>
+                {task.description && (
+                  <span style={s.taskMeta}>{task.description}</span>
+                )}
+                <span style={s.taskMeta}>
+                  {task.type} · {task.status}
+                </span>
+              </div>
+              <button
+                style={s.startTimerBtn}
+                onClick={() => startTimerFor(task)}
+                type="button"
+              >
+                ▶ Start timer
+              </button>
+            </div>
+          ))}
         </div>
       </main>
     </Layout>
@@ -218,8 +341,10 @@ const s = {
   main: {
     flex: 1,
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+    gap: 24,
     padding: 24,
     overflow: 'auto',
   },
@@ -338,5 +463,99 @@ const s = {
     padding: '8px 20px',
     fontSize: 14,
     fontFamily: GEO,
+  },
+  errorText: {
+    margin: '4px 0 0',
+    fontFamily: GEO,
+    fontSize: 13,
+    color: '#ffb4b4',
+    lineHeight: 1.4,
+  },
+  listCard: {
+    width: 'min(90%, 700px)',
+    background: WHITE15,
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    borderRadius: 24,
+    border: `1px solid ${BORDER}`,
+    padding: '32px 40px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    fontFamily: GEO,
+    color: WHITE,
+  },
+  listHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  listTitle: {
+    margin: 0,
+    fontFamily: GEO,
+    fontSize: 18,
+    fontWeight: 600,
+    color: WHITE,
+  },
+  refreshBtn: {
+    background: 'transparent',
+    border: `1px solid ${BORDER}`,
+    color: WHITE60,
+    fontFamily: GEO,
+    fontSize: 12,
+    borderRadius: 16,
+    padding: '4px 12px',
+    cursor: 'pointer',
+  },
+  emptyText: {
+    margin: '8px 0',
+    fontFamily: GEO,
+    fontSize: 14,
+    color: WHITE60,
+    textAlign: 'center',
+  },
+  taskRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    padding: '12px 16px',
+    background: WHITE08,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 16,
+  },
+  taskInfo: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    flex: 1,
+    minWidth: 0,
+  },
+  taskTitleText: {
+    fontFamily: GEO,
+    fontSize: 15,
+    fontWeight: 500,
+    color: WHITE,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  taskMeta: {
+    fontFamily: GEO,
+    fontSize: 12,
+    color: WHITE60,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  startTimerBtn: {
+    ...yellowBtn,
+    borderRadius: 20,
+    height: 'auto',
+    padding: '8px 16px',
+    fontSize: 13,
+    fontFamily: GEO,
+    flexShrink: 0,
   },
 };
