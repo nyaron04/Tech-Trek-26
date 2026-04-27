@@ -15,6 +15,16 @@ public class CalendarEventDto {
         return startTime;
     }
 
+    private String endTime;
+
+    public String getEndTime() {
+        return endTime;
+    }
+
+    public void setEndTime(String endTime) {
+        this.endTime = endTime;
+    }
+
     public String getCategory() {
         return category;
     }

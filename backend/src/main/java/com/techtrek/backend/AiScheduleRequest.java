@@ -10,6 +10,13 @@ public class AiScheduleRequest {
 
     public AiScheduleRequest() {}
 
+    public class CalendarEvent {
+    private String title;
+    private String startTime;
+    private String endTime;
+
+    // getters + setters
+    }   
     public UUID getUserId() {
         return userId;
     }
@@ -32,5 +39,15 @@ public class AiScheduleRequest {
 
     public void setCalendarEvents(List<CalendarEventDto> calendarEvents) {
         this.calendarEvents = calendarEvents;
+    }
+
+    private List<CalendarEventDto> pendingAiEvents;
+
+    public List<CalendarEventDto> getPendingAiEvents() {
+        return pendingAiEvents;
+    }
+
+    public void setPendingAiEvents(List<CalendarEventDto> pendingAiEvents) {
+        this.pendingAiEvents = pendingAiEvents;
     }
 }
