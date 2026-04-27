@@ -168,6 +168,17 @@ export default function Timer() {
         const body = await res.text();
         throw new Error(body || `Stop failed (${res.status})`);
       }
+      const stoppedTimer = await res.json();
+      if (stoppedTimer?.taskId) {
+        const statusRes = await authFetch(`${API_BASE}/tasks/${stoppedTimer.taskId}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'completed' }),
+        });
+        if (!statusRes.ok) {
+          const body = await statusRes.text();
+          throw new Error(body || `Task completion failed (${statusRes.status})`);
+        }
+      }
       setTimerId(null);
       setTimerStatus(null);
       setRunning(false);
