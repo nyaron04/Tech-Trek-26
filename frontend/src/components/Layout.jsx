@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useCurrentUser } from '../auth';
+import { authFetch, getUserId, useCurrentUser, __internal } from '../auth';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import beeLogo  from '../assets/Honey Bee Logo.png';
+
+const API_BASE = __internal.API_BASE;
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -58,9 +60,29 @@ export default function Layout({ children }) {
   const [workingOn,  setWorkingOn]  = useState('');
   const [timerSecs,  setTimerSecs]  = useState(0);
   const [running,     setRunning]     = useState(false);
+  const [timerId,     setTimerId]     = useState(null);
+  const [timerStatus, setTimerStatus] = useState(null);
+  const [timerBusy,   setTimerBusy]   = useState(false);
+  const [timerError,  setTimerError]  = useState('');
   const intervalRef = useRef(null);
 
-  useEffect(() => () => clearInterval(intervalRef.current), []);
+  const stopLocalTicker = useCallback(() => {
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
+  }, []);
+
+  const startLocalTicker = useCallback((timer) => {
+    stopLocalTicker();
+    const startedAt = new Date(timer.startTime).getTime();
+    const accumulated = timer.durationSeconds || 0;
+    const sync = () => {
+      setTimerSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    sync();
+    intervalRef.current = setInterval(sync, 1000);
+  }, [stopLocalTicker]);
+
+  useEffect(() => () => stopLocalTicker(), [stopLocalTicker]);
 
   useEffect(() => {
     if (running && timerSecs > 0 && timerSecs % 60 === 0) {
@@ -69,13 +91,195 @@ export default function Layout({ children }) {
     }
   }, [timerSecs, running]);
 
-  const toggleTimer = () => {
-    if (running) {
-      clearInterval(intervalRef.current);
+  const loadActiveTimer = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      stopLocalTicker();
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
       setRunning(false);
-    } else {
-      intervalRef.current = setInterval(() => setTimerSecs(s => s + 1), 1000);
+      return;
+    }
+
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
+      const timer = await res.json();
+      if (timer?.id && timer?.status === 'RUNNING') {
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setRunning(true);
+        startLocalTicker(timer);
+      } else if (timer?.id && timer?.status === 'PAUSED') {
+        stopLocalTicker();
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTimerSecs(timer.durationSeconds || 0);
+        setRunning(false);
+      } else {
+        stopLocalTicker();
+        setTimerId(null);
+        setTimerStatus(null);
+        setTimerSecs(0);
+        setRunning(false);
+      }
+    } catch (e) {
+      setTimerError(e?.message || 'Could not load timer.');
+    }
+  }, [startLocalTicker, stopLocalTicker]);
+
+  useEffect(() => {
+    loadActiveTimer();
+  }, [loadActiveTimer, currentUser?.id]);
+
+  const getOrCreateTimerTask = async (userId) => {
+    const categoryRes = await authFetch(`${API_BASE}/categories`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, name: 'Timer', color: TEAL }),
+    });
+    if (!categoryRes.ok) {
+      const body = await categoryRes.text();
+      throw new Error(body || `Category failed (${categoryRes.status})`);
+    }
+    const category = await categoryRes.json();
+
+    const taskTitle = workingOn.trim() || 'Focus Session';
+    const taskRes = await authFetch(`${API_BASE}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: taskTitle,
+        description: '',
+        status: 'not completed',
+        categoryId: category.id,
+        userId,
+        type: 'timer',
+      }),
+    });
+    if (!taskRes.ok) {
+      const body = await taskRes.text();
+      throw new Error(body || `Task failed (${taskRes.status})`);
+    }
+    return taskRes.json();
+  };
+
+  const startBackendTimer = async () => {
+    const userId = getUserId();
+    if (!userId) throw new Error('Sign in to start the timer.');
+
+    const task = await getOrCreateTimerTask(userId);
+    const timerRes = await authFetch(`${API_BASE}/api/timer/start`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, taskId: task.id }),
+    });
+    if (!timerRes.ok) {
+      const body = await timerRes.text();
+      await loadActiveTimer();
+      throw new Error(body || `Start failed (${timerRes.status})`);
+    }
+    return timerRes.json();
+  };
+
+  const stopBackendTimer = async (idOverride = timerId) => {
+    let idToStop = idOverride;
+    if (!idToStop) {
+      const userId = getUserId();
+      if (!userId) return;
+      const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!activeRes.ok) {
+        throw new Error(`Active timer failed (${activeRes.status})`);
+      }
+      const active = await activeRes.json();
+      idToStop = active?.id;
+    }
+    if (!idToStop) return;
+
+    const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Stop failed (${res.status})`);
+    }
+  };
+
+  const pauseBackendTimer = async () => {
+    if (!timerId) return null;
+    const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Pause failed (${res.status})`);
+    }
+    return res.json();
+  };
+
+  const resumeBackendTimer = async () => {
+    if (!timerId) return null;
+    const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Resume failed (${res.status})`);
+    }
+    return res.json();
+  };
+
+  const toggleTimer = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
+
+    try {
+      if (running) {
+        const timer = await pauseBackendTimer();
+        stopLocalTicker();
+        setRunning(false);
+        setTimerStatus('PAUSED');
+        setTimerSecs(timer?.durationSeconds ?? timerSecs);
+        return;
+      }
+
+      if (timerStatus === 'PAUSED') {
+        const timer = await resumeBackendTimer();
+        if (!timer) return;
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setRunning(true);
+        startLocalTicker(timer);
+        return;
+      }
+
+      const timer = await startBackendTimer();
+      setTimerId(timer.id);
+      setTimerStatus(timer.status);
       setRunning(true);
+      startLocalTicker(timer);
+    } catch (e) {
+      setTimerError(e?.message || 'Timer failed.');
+    } finally {
+      setTimerBusy(false);
+    }
+  };
+
+  const finishTimerAndNavigate = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
+    try {
+      await stopBackendTimer();
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+      navigate('/task-completed');
+    } catch (e) {
+      setTimerError(e?.message || 'Could not finish timer.');
+    } finally {
+      setTimerBusy(false);
     }
   };
 
@@ -113,12 +317,21 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div style={s.timerBox} onClick={toggleTimer} title={running ? 'Pause' : 'Start'}>
-            <span style={s.timerIcon}>{running ? '⏸' : '▶'}</span>
+          <div
+            style={{
+              ...s.timerBox,
+              opacity: timerBusy ? 0.65 : 1,
+              cursor: timerBusy ? 'wait' : 'pointer',
+            }}
+            onClick={toggleTimer}
+            title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
+          >
+            <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
             <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
           </div>
+          {timerError && <span style={s.timerError}>{timerError}</span>}
 
-          <button style={s.doneBtn} onClick={() => navigate('/task-completed')} title="Mark task complete">
+          <button style={s.doneBtn} onClick={finishTimerAndNavigate} title="Finish timer and mark task complete">
             ✓
           </button>
         </header>
@@ -290,6 +503,15 @@ const s = {
     color: TEAL,
     fontWeight: 700,
     letterSpacing: 1.5,
+  },
+  timerError: {
+    maxWidth: 180,
+    color: '#ff8a8a',
+    fontSize: 11,
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   doneBtn: {
     display: 'flex',

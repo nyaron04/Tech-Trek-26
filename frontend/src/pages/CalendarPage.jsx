@@ -197,6 +197,8 @@ function TaskModal({ onClose, initialDate, categories, onAddTask, initialData, e
   const [title,              setTitle]              = useState(initialData?.title ?? '');
   const [description,        setDescription]        = useState(initialData?.description ?? '');
   const [selectedCategory,   setSelectedCategory]   = useState(initialData?.categoryLabel ?? null);
+  const [formError,          setFormError]          = useState('');
+  const [saving,             setSaving]             = useState(false);
   const [startDate,          setStartDate]          = useState(() => {
     if (initialData?.date) return new Date(initialData.date);
     if (initialDate) return initialDate;
@@ -353,12 +355,25 @@ function TaskModal({ onClose, initialDate, categories, onAddTask, initialData, e
 
         {/* Add Task / Save Changes button */}
         <div style={m.btnRow}>
-          <button style={m.addBtn} onClick={() => {
-            const cat = categories.find(c => c.label === selectedCategory);
-            onAddTask({ title, startDate, category: cat ?? null, description, id: initialData?.id });
-            onClose();
-          }}>{editMode ? 'Save Changes' : 'Add Task'}</button>
+          <button
+            style={{ ...m.addBtn, opacity: saving ? 0.6 : 1 }}
+            disabled={saving}
+            onClick={async () => {
+              const cat = categories.find(c => c.label === selectedCategory);
+              setFormError('');
+              setSaving(true);
+              try {
+                await onAddTask({ title, startDate, category: cat ?? null, description, id: initialData?.id });
+                onClose();
+              } catch (e) {
+                setFormError(e?.message || 'Could not save task.');
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >{saving ? 'Saving...' : editMode ? 'Save Changes' : 'Add Task'}</button>
         </div>
+        {formError && <div style={m.errorText}>{formError}</div>}
       </div>
     </div>
   );
@@ -432,43 +447,83 @@ export default function CalendarPage() {
     setModalOpen(true);
   };
 
-  const handleAddTask = ({ title, startDate, category, description, id }) => {
-    if (!title.trim()) return;
+  const saveBackendTask = async ({ backendId, title, description, category }) => {
+    const userId = getUserId();
+    if (!userId) throw new Error('Sign in to save a task.');
+    if (!title.trim()) throw new Error('Task title is required.');
+    if (!category?.id) throw new Error('Pick a category before saving this task.');
+
+    const payload = {
+      title: title.trim(),
+      description: description?.trim() ?? '',
+      status: 'not completed',
+      categoryId: category.id,
+      userId,
+      type: 'calendar',
+    };
+
+    const res = await authFetch(`${API_BASE}/tasks${backendId ? `/${backendId}` : ''}`, {
+      method: backendId ? 'PUT' : 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Task save failed (${res.status})`);
+    }
+    return res.json();
+  };
+
+  const handleAddTask = async ({ title, startDate, category, description, id }) => {
+    const existing = id ? events.find(e => e.id === id) : null;
+    const saved = await saveBackendTask({
+      backendId: existing?.taskId,
+      title,
+      description,
+      category,
+    });
+
     if (id) {
       setEvents(prev => prev.map(e => e.id === id ? {
         ...e,
-        title,
+        taskId: saved.id,
+        title: saved.title,
         color: category?.color ?? e.color,
         categoryLabel: category?.label ?? null,
         date: startDate,
-        description: description ?? '',
+        description: saved.description ?? '',
       } : e));
     } else {
       setEvents(prev => [...prev, {
-        id: Date.now(),
-        title,
+        id: saved.id,
+        taskId: saved.id,
+        title: saved.title,
         color: category?.color ?? TEAL,
         categoryLabel: category?.label ?? null,
         date: startDate,
-        description: description ?? '',
+        description: saved.description ?? '',
         completed: false,
       }]);
     }
   };
 
-  const deleteEvent = id => {
-    setEvents(prev => {
-      const ev = prev.find(e => e.id === id);
-      if (ev) {
-        try {
-          const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
-          localStorage.setItem('completedTasks', JSON.stringify(
-            existing.filter(t => t.taskName !== ev.title)
-          ));
-        } catch {}
+  const deleteEvent = async id => {
+    const ev = events.find(e => e.id === id);
+    if (ev?.taskId) {
+      try {
+        await authFetch(`${API_BASE}/tasks/${ev.taskId}`, { method: 'DELETE' });
+      } catch {
+        // Keep the calendar responsive even if the backend delete fails.
       }
-      return prev.filter(e => e.id !== id);
-    });
+    }
+    if (ev) {
+      try {
+        const existing = JSON.parse(localStorage.getItem('completedTasks') || '[]');
+        localStorage.setItem('completedTasks', JSON.stringify(
+          existing.filter(t => t.taskName !== ev.title)
+        ));
+      } catch {}
+    }
+    setEvents(prev => prev.filter(e => e.id !== id));
   };
 
   const completeEvent = id => {
@@ -584,7 +639,13 @@ export default function CalendarPage() {
     const iso = d.toISOString().slice(0, 10);
     const di  = weekDates.findIndex(wd => wd.toISOString().slice(0, 10) === iso);
     if (di === -1) return;
-    eventMap[`${di}-${d.getHours()}`] = { id: ev.id, title: ev.title, color: ev.color, completed: ev.completed };
+    eventMap[`${di}-${d.getHours()}`] = {
+      id: ev.id,
+      taskId: ev.taskId,
+      title: ev.title,
+      color: ev.color,
+      completed: ev.completed,
+    };
   });
 
   useEffect(() => {
@@ -1403,6 +1464,11 @@ const m = {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
+  },
+  errorText: {
+    color: '#ff8a8a',
+    fontSize: 12,
+    fontFamily: GEO,
   },
   addBtn: {
     background: '#FED430',

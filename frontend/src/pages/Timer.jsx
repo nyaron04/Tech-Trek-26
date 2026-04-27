@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import plantsImg from '../assets/Sunflower Growth.png';
-import { authFetch, getUserId } from '../auth';
+import { authFetch, getUserId, __internal } from '../auth';
 
+const API_BASE = __internal.API_BASE;
 const GEO = "'Georama', 'Inter', sans-serif";
 
 function fmtTime(s) {
@@ -17,15 +18,95 @@ function fmtTime(s) {
 export default function Timer() {
   const navigate  = useNavigate();
   const location  = useLocation();
-  const taskId    = location.state?.taskId || null;
-  const taskTitle = location.state?.taskTitle || 'Title of Task';
+  const routeTaskId    = location.state?.taskId || null;
+  const routeTaskTitle = location.state?.taskTitle || 'Title of Task';
 
   const [secs,    setSecs]    = useState(0);
   const [running, setRunning] = useState(false);
   const [timerId, setTimerId] = useState(null);
+  const [timerStatus, setTimerStatus] = useState(null);
+  const [taskId,  setTaskId]  = useState(routeTaskId);
+  const [taskTitle, setTaskTitle] = useState(routeTaskTitle);
   const [error,   setError]   = useState('');
   const [busy,    setBusy]    = useState(false);
   const intervalRef = useRef(null);
+
+  const stopLocalTicker = useCallback(() => {
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
+  }, []);
+
+  const startLocalTicker = useCallback((timer) => {
+    stopLocalTicker();
+    const startedAt = new Date(timer.startTime).getTime();
+    const accumulated = timer.durationSeconds || 0;
+    const sync = () => {
+      setSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    sync();
+    intervalRef.current = setInterval(sync, 1000);
+  }, [stopLocalTicker]);
+
+  const loadTaskTitle = useCallback(async (id) => {
+    if (!id) return;
+    try {
+      const res = await authFetch(`${API_BASE}/tasks/${id}`);
+      if (!res.ok) return;
+      const task = await res.json();
+      if (task?.title) setTaskTitle(task.title);
+    } catch {
+      // Non-fatal: the timer can still run without a refreshed title.
+    }
+  }, []);
+
+  const loadActiveTimer = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setSecs(0);
+      return;
+    }
+
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
+      const timer = await res.json();
+      if (timer?.id && timer?.status === 'RUNNING') {
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTaskId(timer.taskId);
+        setRunning(true);
+        startLocalTicker(timer);
+        if (timer.taskId !== routeTaskId) await loadTaskTitle(timer.taskId);
+      } else if (timer?.id && timer?.status === 'PAUSED') {
+        stopLocalTicker();
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTaskId(timer.taskId);
+        setSecs(timer.durationSeconds || 0);
+        setRunning(false);
+        if (timer.taskId !== routeTaskId) await loadTaskTitle(timer.taskId);
+      } else {
+        stopLocalTicker();
+        setRunning(false);
+        setTimerId(null);
+        setTimerStatus(null);
+        setSecs(0);
+        setTaskId(routeTaskId);
+        setTaskTitle(routeTaskTitle);
+      }
+    } catch (e) {
+      setError(e?.message || 'Could not load active timer.');
+    }
+  }, [loadTaskTitle, routeTaskId, routeTaskTitle, startLocalTicker, stopLocalTicker]);
+
+  useEffect(() => {
+    loadActiveTimer();
+    return () => stopLocalTicker();
+  }, [loadActiveTimer, stopLocalTicker]);
 
   const canStart = !!taskId && !!getUserId();
 
@@ -43,17 +124,20 @@ export default function Timer() {
     setError('');
     setBusy(true);
     try {
-      const res = await authFetch(`http://localhost:8080/api/timer/start`, {
+      const res = await authFetch(`${API_BASE}/api/timer/start`, {
         method: 'POST',
         body: JSON.stringify({ userId, taskId }),
       });
       if (!res.ok) {
         const body = await res.text();
+        await loadActiveTimer();
         throw new Error(body || `Start failed (${res.status})`);
       }
       const saved = await res.json();
       setTimerId(saved.id);
-      return saved.id;
+      setTimerStatus(saved.status);
+      setTaskId(saved.taskId);
+      return saved;
     } catch (e) {
       setError(e?.message || 'Could not start the timer.');
       return null;
@@ -63,10 +147,21 @@ export default function Timer() {
   };
 
   const endTimer = async (idOverride) => {
-    const idToStop = idOverride || timerId;
-    if (!idToStop) return;
     try {
-      const res = await authFetch(`http://localhost:8080/api/timer/stop/${idToStop}`, {
+      let idToStop = idOverride || timerId;
+      if (!idToStop) {
+        const userId = getUserId();
+        if (!userId) return false;
+        const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+        if (!activeRes.ok) {
+          throw new Error(`Active timer failed (${activeRes.status})`);
+        }
+        const active = await activeRes.json();
+        idToStop = active?.id;
+      }
+      if (!idToStop) return true;
+
+      const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -74,8 +169,65 @@ export default function Timer() {
         throw new Error(body || `Stop failed (${res.status})`);
       }
       setTimerId(null);
+      setTimerStatus(null);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(0);
+      return true;
     } catch (e) {
       setError(e?.message || 'Could not stop the timer.');
+      return false;
+    }
+  };
+
+  const pauseTimer = async () => {
+    if (!timerId) return null;
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Pause failed (${res.status})`);
+      }
+      const timer = await res.json();
+      setTimerStatus(timer.status);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(timer.durationSeconds || 0);
+      return timer;
+    } catch (e) {
+      setError(e?.message || 'Could not pause the timer.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resumeTimer = async () => {
+    if (!timerId) return null;
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body || `Resume failed (${res.status})`);
+      }
+      const timer = await res.json();
+      setTimerStatus(timer.status);
+      setRunning(true);
+      startLocalTicker(timer);
+      return timer;
+    } catch (e) {
+      setError(e?.message || 'Could not resume the timer.');
+      return null;
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -83,25 +235,24 @@ export default function Timer() {
     if (busy) return;
 
     if (running) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-      setRunning(false);
-      await endTimer();
+      await pauseTimer();
       return;
     }
 
-    const newId = await startTimer();
-    if (!newId) return; // backend failed; don't tick locally
-    intervalRef.current = setInterval(() => setSecs(s => s + 1), 1000);
+    if (timerStatus === 'PAUSED') {
+      await resumeTimer();
+      return;
+    }
+
+    const timer = await startTimer();
+    if (!timer) return; // backend failed; don't tick locally
+    startLocalTicker(timer);
     setRunning(true);
   };
 
   const finish = async () => {
-    clearInterval(intervalRef.current);
-    intervalRef.current = null;
-    setRunning(false);
-    await endTimer();
-    navigate('/task-completed');
+    const stopped = await endTimer();
+    if (stopped) navigate('/task-completed');
   };
 
   return (
@@ -139,7 +290,7 @@ export default function Timer() {
           title={!canStart ? 'Pick a task from the Tasks page first' : undefined}
         >
           <span style={s.playIcon}>{running ? '⏸' : '▶'}</span>
-          {busy ? ' …' : running ? ' Pause Timer' : ' Start Timer'}
+          {busy ? ' …' : running ? ' Pause Timer' : timerStatus === 'PAUSED' ? ' Resume Timer' : ' Start Timer'}
         </button>
 
         {!taskId && (

@@ -424,10 +424,6 @@ export default function TasksPage() {
 
           {/* Button row */}
           <div style={s.btnRow}>
-            <button style={s.calBtn}>
-              <CalendarBtnIcon />
-              <span>Select Calendar</span>
-            </button>
             <button
               style={{
                 ...s.addTaskBtn,
