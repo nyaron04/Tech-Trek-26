@@ -13,4 +13,6 @@ public interface TimerEntryRepository extends JpaRepository<TimerEntry, UUID> {
     List<TimerEntry> findByTaskIdOrderByCreatedAtDesc(UUID taskId);
 
     Optional<TimerEntry> findFirstByUserIdAndStatusOrderByStartTimeDesc(UUID userId, String status);
+
+    Optional<TimerEntry> findFirstByUserIdAndStatusInOrderByUpdatedAtDesc(UUID userId, List<String> statuses);
 }

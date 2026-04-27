@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import plantsImg from '../assets/Sunflower Growth.png';
+import { authFetch, getUserId, __internal } from '../auth';
 
-const GEO         = "'Georama', 'Inter', sans-serif";
-const STORAGE_KEY = 'honeybee_timer';
+const API_BASE = __internal.API_BASE;
+const GEO = "'Georama', 'Inter', sans-serif";
 
 function fmtTime(s) {
   const hh = String(Math.floor(s / 3600)).padStart(2, '0');
@@ -14,76 +15,208 @@ function fmtTime(s) {
   return `${hh}:${mm}:${ss}`;
 }
 
-function loadTimer() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); }
-  catch { return null; }
-}
-
-function saveTimer(isRunning, startTime, elapsed) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ isRunning, startTime, elapsed }));
-}
-
 export default function Timer() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const taskTitle = location.state?.taskTitle || 'Title of Task';
+  const navigate       = useNavigate();
+  const location       = useLocation();
+  const routeTaskId    = location.state?.taskId    || null;
+  const routeTaskTitle = location.state?.taskTitle || 'Title of Task';
 
-  const [running, setRunning] = useState(false);
-  const [, setTick] = useState(0); // triggers re-render each second
+  const [running,     setRunning]     = useState(false);
+  const [secs,        setSecs]        = useState(0);
+  const [timerId,     setTimerId]     = useState(null);
+  const [timerStatus, setTimerStatus] = useState(null);
+  const [taskId,      setTaskId]      = useState(routeTaskId);
+  const [taskTitle,   setTaskTitle]   = useState(routeTaskTitle);
+  const [error,       setError]       = useState('');
+  const [busy,        setBusy]        = useState(false);
   const intervalRef = useRef(null);
-  // Source of truth for display — never stale because we read them at render time
-  const elapsedRef  = useRef(0);   // ms accumulated before the current run
-  const startRef    = useRef(null); // Date.now() when current run began (null if paused)
 
-  // Restore from localStorage on mount — keep original startTime, no folding
-  useEffect(() => {
-    const saved = loadTimer();
-    if (!saved) return;
-    elapsedRef.current = saved.elapsed ?? 0;
-    if (saved.isRunning && saved.startTime) {
-      startRef.current = saved.startTime; // use saved startTime directly
-      setRunning(true);
-      intervalRef.current = setInterval(() => setTick(t => t + 1), 1000);
-    }
-    setTick(t => t + 1); // initial render with restored values
+  const stopLocalTicker = useCallback(() => {
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
   }, []);
 
-  // Display reads from refs — always accurate, no stale-closure risk
-  const displaySecs = Math.floor(
-    (elapsedRef.current + (startRef.current ? Date.now() - startRef.current : 0)) / 1000
-  );
+  const startLocalTicker = useCallback((timer) => {
+    stopLocalTicker();
+    const startedAt   = new Date(timer.startTime).getTime();
+    const accumulated = timer.durationSeconds || 0;
+    const sync = () => {
+      setSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    sync();
+    intervalRef.current = setInterval(sync, 1000);
+  }, [stopLocalTicker]);
 
-  const toggle = () => {
-    if (running) {
-      clearInterval(intervalRef.current);
-      const newElapsed = elapsedRef.current + (Date.now() - startRef.current);
-      elapsedRef.current = newElapsed;
-      startRef.current   = null;
+  const loadTaskTitle = useCallback(async (id) => {
+    if (!id) return;
+    try {
+      const res = await authFetch(`${API_BASE}/tasks/${id}`);
+      if (!res.ok) return;
+      const task = await res.json();
+      if (task?.title) setTaskTitle(task.title);
+    } catch {
+      // Non-fatal: the timer can still run without a refreshed title.
+    }
+  }, []);
+
+  const loadActiveTimer = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      stopLocalTicker();
       setRunning(false);
-      saveTimer(false, null, newElapsed);
-    } else {
-      const now = Date.now();
-      startRef.current = now;
-      setRunning(true);
-      saveTimer(true, now, elapsedRef.current);
-      intervalRef.current = setInterval(() => setTick(t => t + 1), 1000);
+      setTimerId(null);
+      setTimerStatus(null);
+      setSecs(0);
+      return;
+    }
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
+      const timer = await res.json();
+      if (timer?.id && timer?.status === 'RUNNING') {
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTaskId(timer.taskId);
+        setRunning(true);
+        startLocalTicker(timer);
+        if (timer.taskId !== routeTaskId) await loadTaskTitle(timer.taskId);
+      } else if (timer?.id && timer?.status === 'PAUSED') {
+        stopLocalTicker();
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTaskId(timer.taskId);
+        setSecs(timer.durationSeconds || 0);
+        setRunning(false);
+        if (timer.taskId !== routeTaskId) await loadTaskTitle(timer.taskId);
+      } else {
+        stopLocalTicker();
+        setRunning(false);
+        setTimerId(null);
+        setTimerStatus(null);
+        setSecs(0);
+        setTaskId(routeTaskId);
+        setTaskTitle(routeTaskTitle);
+      }
+    } catch (e) {
+      setError(e?.message || 'Could not load active timer.');
+    }
+  }, [loadTaskTitle, routeTaskId, routeTaskTitle, startLocalTicker, stopLocalTicker]);
+
+  useEffect(() => {
+    loadActiveTimer();
+    return () => stopLocalTicker();
+  }, [loadActiveTimer, stopLocalTicker]);
+
+  const canStart = !!taskId && !!getUserId();
+
+  const startTimer = async () => {
+    const userId = getUserId();
+    if (!userId) { setError('You need to be signed in to start the timer.'); return null; }
+    if (!taskId)  { setError('Pick a task first — open Tasks and click "Start timer".'); return null; }
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/start`, {
+        method: 'POST',
+        body: JSON.stringify({ userId, taskId }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        await loadActiveTimer();
+        throw new Error(body || `Start failed (${res.status})`);
+      }
+      const saved = await res.json();
+      setTimerId(saved.id);
+      setTimerStatus(saved.status);
+      setTaskId(saved.taskId);
+      return saved;
+    } catch (e) {
+      setError(e?.message || 'Could not start the timer.');
+      return null;
+    } finally {
+      setBusy(false);
     }
   };
 
-  const reset = () => {
-    clearInterval(intervalRef.current);
-    elapsedRef.current = 0;
-    startRef.current   = null;
-    setRunning(false);
-    setTick(t => t + 1);
-    saveTimer(false, null, 0);
+  const endTimer = async (idOverride) => {
+    try {
+      let idToStop = idOverride || timerId;
+      if (!idToStop) {
+        const userId = getUserId();
+        if (!userId) return false;
+        const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+        if (!activeRes.ok) throw new Error(`Active timer failed (${activeRes.status})`);
+        idToStop = (await activeRes.json())?.id;
+      }
+      if (!idToStop) return true;
+      const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, { method: 'POST' });
+      if (!res.ok) { const body = await res.text(); throw new Error(body || `Stop failed (${res.status})`); }
+      setTimerId(null);
+      setTimerStatus(null);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(0);
+      return true;
+    } catch (e) {
+      setError(e?.message || 'Could not stop the timer.');
+      return false;
+    }
   };
 
-  const finish = () => {
-    clearInterval(intervalRef.current);
-    const finalElapsed = elapsedRef.current + (startRef.current ? Date.now() - startRef.current : 0);
-    saveTimer(false, null, finalElapsed);
-    navigate('/task-completed');
+  const pauseTimer = async () => {
+    if (!timerId) return null;
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, { method: 'POST' });
+      if (!res.ok) { const body = await res.text(); throw new Error(body || `Pause failed (${res.status})`); }
+      const timer = await res.json();
+      setTimerStatus(timer.status);
+      setRunning(false);
+      stopLocalTicker();
+      setSecs(timer.durationSeconds || 0);
+      return timer;
+    } catch (e) {
+      setError(e?.message || 'Could not pause the timer.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resumeTimer = async () => {
+    if (!timerId) return null;
+    setError('');
+    setBusy(true);
+    try {
+      const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, { method: 'POST' });
+      if (!res.ok) { const body = await res.text(); throw new Error(body || `Resume failed (${res.status})`); }
+      const timer = await res.json();
+      setTimerStatus(timer.status);
+      setRunning(true);
+      startLocalTicker(timer);
+      return timer;
+    } catch (e) {
+      setError(e?.message || 'Could not resume the timer.');
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async () => {
+    if (busy) return;
+    if (running)                    { await pauseTimer();  return; }
+    if (timerStatus === 'PAUSED')   { await resumeTimer(); return; }
+    const timer = await startTimer();
+    if (!timer) return;
+    startLocalTicker(timer);
+    setRunning(true);
+  };
+
+  const finish = async () => {
+    const stopped = await endTimer();
+    if (stopped) navigate('/task-completed');
   };
 
   return (
@@ -93,34 +226,41 @@ export default function Timer() {
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       `}</style>
 
-      {/* Layered backgrounds */}
       <div style={s.bg} />
       <img src={bgForest} alt="" style={s.forest} />
-
-      {/* Plant growth strip */}
       <img src={plantsImg} alt="plant growth stages" style={s.plants} />
 
-      {/* Top nav bar */}
       <div style={s.topBar}>
         <button style={s.navBtn} onClick={() => navigate(-1)}>{'< Back'}</button>
         <button style={s.navBtn} onClick={finish}>{'Finish! >'}</button>
       </div>
 
-      {/* Center content */}
       <div style={s.center}>
         <h2 style={s.taskTitle}>{taskTitle}</h2>
-        <div style={s.timeDisplay}>{fmtTime(displaySecs)}</div>
-        <button style={s.startBtn} onClick={toggle}>
+        <div style={s.timeDisplay}>{fmtTime(secs)}</div>
+        <button
+          style={{
+            ...s.startBtn,
+            opacity: canStart && !busy ? 1 : 0.55,
+            cursor: busy ? 'wait' : (canStart ? 'pointer' : 'not-allowed'),
+          }}
+          onClick={toggle}
+          disabled={!canStart || busy}
+          title={!canStart ? 'Pick a task from the Tasks page first' : undefined}
+        >
           <span style={s.playIcon}>{running ? '⏸' : '▶'}</span>
-          {running ? ' Pause Timer' : ' Start Timer'}
+          {busy ? ' …' : running ? ' Pause Timer' : timerStatus === 'PAUSED' ? ' Resume Timer' : ' Start Timer'}
         </button>
-        <button style={s.resetBtn} onClick={reset}>
-          <svg width="15" height="15" viewBox="0 0 13 13" fill="none" style={{ marginRight: 6 }}>
-            <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Reset
-        </button>
+
+        {!taskId && (
+          <p style={s.hint}>
+            No task selected.{' '}
+            <button style={s.linkBtn} onClick={() => navigate('/tasks')}>
+              Pick one from Tasks
+            </button>
+          </p>
+        )}
+        {error && <p style={s.errorText}>{error}</p>}
       </div>
     </div>
   );
@@ -238,22 +378,31 @@ const s = {
   playIcon: {
     fontSize: 18,
   },
-  resetBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 0,
-    padding: '0 28px',
-    height: 42,
-    borderRadius: 40,
-    background: 'rgba(255,255,255,0.12)',
-    border: '1px solid rgba(255,255,255,0.25)',
+  hint: {
+    marginTop: 12,
     fontFamily: GEO,
+    fontSize: 14,
+    color: '#fff',
+    textShadow: '0 1px 4px rgba(0,0,0,0.35)',
+  },
+  linkBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#FED430',
+    fontFamily: GEO,
+    fontSize: 14,
     fontWeight: 600,
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.75)',
     cursor: 'pointer',
-    letterSpacing: 0.3,
-    marginTop: 4,
+    textDecoration: 'underline',
+    padding: 0,
+  },
+  errorText: {
+    marginTop: 12,
+    fontFamily: GEO,
+    fontSize: 14,
+    color: '#ffb4b4',
+    textShadow: '0 1px 4px rgba(0,0,0,0.4)',
+    maxWidth: 480,
+    textAlign: 'center',
   },
 };

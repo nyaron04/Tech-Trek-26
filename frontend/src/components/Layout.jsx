@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useCurrentUser } from '../auth';
+import { authFetch, getUserId, useCurrentUser, __internal } from '../auth';
 import bgMain   from '../assets/Background.png';
 import bgForest from '../assets/Background forest.png';
 import beeLogo  from '../assets/Honey Bee Logo.png';
+
+const API_BASE = __internal.API_BASE;
 
 const GEO    = "'Georama', 'Inter', sans-serif";
 const TEAL   = '#5BC8E8';
@@ -29,12 +31,11 @@ const NAV_SECTIONS = [
   {
     title: 'MANAGE',
     items: [
-      { label: 'Tasks',    route: '/tasks'     },
-      { label: 'Log Out', route: '/dashboard' },
+      { label: 'Tasks',   route: '/tasks'   },
+      { label: 'Log Out', route: '/landing' },
     ],
   },
 ];
-
 
 function fmtTimer(s) {
   const hh = String(Math.floor(s / 3600)).padStart(2, '0');
@@ -49,71 +50,205 @@ function getInitials(name) {
 }
 
 export default function Layout({ children }) {
-  const navigate  = useNavigate();
+  const navigate     = useNavigate();
   const { pathname } = useLocation();
-  const currentUser = useCurrentUser();
-  const displayName = currentUser?.displayName || currentUser?.name || '';
-  const initials = getInitials(displayName);
+  const currentUser  = useCurrentUser();
+  const displayName  = currentUser?.displayName || currentUser?.name || '';
+  const initials     = getInitials(displayName);
 
-  const [workingOn, setWorkingOn] = useState('');
-  const [navMs,     setNavMs]     = useState(0);
-  const [navRunning, setNavRunning] = useState(false);
-  const xpRef = useRef(0);
+  const [workingOn,   setWorkingOn]   = useState('');
+  const [timerSecs,   setTimerSecs]   = useState(0);
+  const [running,     setRunning]     = useState(false);
+  const [timerId,     setTimerId]     = useState(null);
+  const [timerStatus, setTimerStatus] = useState(null);
+  const [timerBusy,   setTimerBusy]   = useState(false);
+  const [timerError,  setTimerError]  = useState('');
+  const intervalRef = useRef(null);
 
-  useEffect(() => {
-    function readTimer() {
-      try {
-        const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null');
-        if (!saved) { setNavMs(0); setNavRunning(false); return; }
-        const ms = saved.isRunning && saved.startTime
-          ? saved.elapsed + (Date.now() - saved.startTime)
-          : (saved.elapsed ?? 0);
-        setNavMs(ms);
-        setNavRunning(!!saved.isRunning);
-
-        // Award 1 XP per newly completed minute while running
-        if (saved.isRunning) {
-          const mins = Math.floor(ms / 60000);
-          if (mins > xpRef.current) {
-            const gained = mins - xpRef.current;
-            xpRef.current = mins;
-            const prev = parseInt(localStorage.getItem('honeybee_xp') || '0', 10);
-            localStorage.setItem('honeybee_xp', String(prev + gained));
-          }
-        }
-      } catch {}
-    }
-    readTimer();
-    const id = setInterval(readTimer, 1000);
-    return () => clearInterval(id);
+  const stopLocalTicker = useCallback(() => {
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
   }, []);
 
-  const toggleTimer = () => {
+  const startLocalTicker = useCallback((timer) => {
+    stopLocalTicker();
+    const startedAt   = new Date(timer.startTime).getTime();
+    const accumulated = timer.durationSeconds || 0;
+    const sync = () => {
+      setTimerSecs(accumulated + Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    };
+    sync();
+    intervalRef.current = setInterval(sync, 1000);
+  }, [stopLocalTicker]);
+
+  useEffect(() => () => stopLocalTicker(), [stopLocalTicker]);
+
+  const loadActiveTimer = useCallback(async () => {
+    const userId = getUserId();
+    if (!userId) {
+      stopLocalTicker();
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+      setRunning(false);
+      return;
+    }
     try {
-      const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null') ?? { elapsed: 0, isRunning: false, startTime: null };
-      if (saved.isRunning) {
-        const newElapsed = saved.elapsed + (Date.now() - saved.startTime);
-        localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: newElapsed }));
+      const res = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!res.ok) throw new Error(`Active timer failed (${res.status})`);
+      const timer = await res.json();
+      if (timer?.id && timer?.status === 'RUNNING') {
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setRunning(true);
+        startLocalTicker(timer);
+      } else if (timer?.id && timer?.status === 'PAUSED') {
+        stopLocalTicker();
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setTimerSecs(timer.durationSeconds || 0);
+        setRunning(false);
       } else {
-        const now = Date.now();
-        localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: true, startTime: now, elapsed: saved.elapsed ?? 0 }));
+        stopLocalTicker();
+        setTimerId(null);
+        setTimerStatus(null);
+        setTimerSecs(0);
+        setRunning(false);
       }
-    } catch {}
+    } catch (e) {
+      setTimerError(e?.message || 'Could not load timer.');
+    }
+  }, [startLocalTicker, stopLocalTicker]);
+
+  useEffect(() => {
+    loadActiveTimer();
+  }, [loadActiveTimer, currentUser?.id]);
+
+  const getOrCreateTimerTask = async (userId) => {
+    const categoryRes = await authFetch(`${API_BASE}/categories`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, name: 'Timer', color: TEAL }),
+    });
+    if (!categoryRes.ok) {
+      const body = await categoryRes.text();
+      throw new Error(body || `Category failed (${categoryRes.status})`);
+    }
+    const category = await categoryRes.json();
+
+    const taskTitle = workingOn.trim() || 'Focus Session';
+    const taskRes = await authFetch(`${API_BASE}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: taskTitle,
+        description: '',
+        status: 'not completed',
+        categoryId: category.id,
+        userId,
+        type: 'timer',
+      }),
+    });
+    if (!taskRes.ok) {
+      const body = await taskRes.text();
+      throw new Error(body || `Task failed (${taskRes.status})`);
+    }
+    return taskRes.json();
   };
 
-  const stopTimer = () => {
+  const startBackendTimer = async () => {
+    const userId = getUserId();
+    if (!userId) throw new Error('Sign in to start the timer.');
+    const task = await getOrCreateTimerTask(userId);
+    const timerRes = await authFetch(`${API_BASE}/api/timer/start`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, taskId: task.id }),
+    });
+    if (!timerRes.ok) {
+      const body = await timerRes.text();
+      await loadActiveTimer();
+      throw new Error(body || `Start failed (${timerRes.status})`);
+    }
+    return timerRes.json();
+  };
+
+  const stopBackendTimer = async (idOverride = timerId) => {
+    let idToStop = idOverride;
+    if (!idToStop) {
+      const userId = getUserId();
+      if (!userId) return;
+      const activeRes = await authFetch(`${API_BASE}/api/timer/active/${encodeURIComponent(userId)}`);
+      if (!activeRes.ok) throw new Error(`Active timer failed (${activeRes.status})`);
+      idToStop = (await activeRes.json())?.id;
+    }
+    if (!idToStop) return;
+    const res = await authFetch(`${API_BASE}/api/timer/stop/${idToStop}`, { method: 'POST' });
+    if (!res.ok) { const body = await res.text(); throw new Error(body || `Stop failed (${res.status})`); }
+  };
+
+  const pauseBackendTimer = async () => {
+    if (!timerId) return null;
+    const res = await authFetch(`${API_BASE}/api/timer/pause/${timerId}`, { method: 'POST' });
+    if (!res.ok) { const body = await res.text(); throw new Error(body || `Pause failed (${res.status})`); }
+    return res.json();
+  };
+
+  const resumeBackendTimer = async () => {
+    if (!timerId) return null;
+    const res = await authFetch(`${API_BASE}/api/timer/resume/${timerId}`, { method: 'POST' });
+    if (!res.ok) { const body = await res.text(); throw new Error(body || `Resume failed (${res.status})`); }
+    return res.json();
+  };
+
+  const toggleTimer = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
     try {
-      const saved = JSON.parse(localStorage.getItem('honeybee_timer') || 'null');
-      if (!saved) return;
-      const finalElapsed = saved.isRunning && saved.startTime
-        ? saved.elapsed + (Date.now() - saved.startTime)
-        : (saved.elapsed ?? 0);
-      localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: finalElapsed }));
-    } catch {}
+      if (running) {
+        const timer = await pauseBackendTimer();
+        stopLocalTicker();
+        setRunning(false);
+        setTimerStatus('PAUSED');
+        setTimerSecs(timer?.durationSeconds ?? timerSecs);
+        return;
+      }
+      if (timerStatus === 'PAUSED') {
+        const timer = await resumeBackendTimer();
+        if (!timer) return;
+        setTimerId(timer.id);
+        setTimerStatus(timer.status);
+        setRunning(true);
+        startLocalTicker(timer);
+        return;
+      }
+      const timer = await startBackendTimer();
+      setTimerId(timer.id);
+      setTimerStatus(timer.status);
+      setRunning(true);
+      startLocalTicker(timer);
+    } catch (e) {
+      setTimerError(e?.message || 'Timer failed.');
+    } finally {
+      setTimerBusy(false);
+    }
   };
 
-  const resetTimer = () => {
-    localStorage.setItem('honeybee_timer', JSON.stringify({ isRunning: false, startTime: null, elapsed: 0 }));
+  const finishTimerAndNavigate = async () => {
+    if (timerBusy) return;
+    setTimerBusy(true);
+    setTimerError('');
+    try {
+      await stopBackendTimer();
+      stopLocalTicker();
+      setRunning(false);
+      setTimerId(null);
+      setTimerStatus(null);
+      setTimerSecs(0);
+      navigate('/task-completed');
+    } catch (e) {
+      setTimerError(e?.message || 'Could not finish timer.');
+    } finally {
+      setTimerBusy(false);
+    }
   };
 
   return (
@@ -150,24 +285,21 @@ export default function Layout({ children }) {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={s.timerBox} onClick={toggleTimer} title={navRunning ? 'Pause' : 'Start'}>
-              <span style={s.timerIcon}>{navRunning ? '⏸' : '▶'}</span>
-              <span style={s.timerTime}>{fmtTimer(Math.floor(navMs / 1000))}</span>
-            </div>
-            <button
-              style={s.resetBtn}
-              onClick={resetTimer}
-              title="Reset timer"
-            >
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                <path d="M11.5 6.5A5 5 0 1 1 9 2.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                <path d="M9 0.5v2h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+          <div
+            style={{
+              ...s.timerBox,
+              opacity: timerBusy ? 0.65 : 1,
+              cursor: timerBusy ? 'wait' : 'pointer',
+            }}
+            onClick={toggleTimer}
+            title={timerBusy ? 'Syncing timer...' : running ? 'Pause timer' : timerStatus === 'PAUSED' ? 'Resume timer' : 'Start timer'}
+          >
+            <span style={s.timerIcon}>{timerBusy ? '…' : running ? '⏸' : '▶'}</span>
+            <span style={s.timerTime}>{fmtTimer(timerSecs)}</span>
           </div>
+          {timerError && <span style={s.timerError}>{timerError}</span>}
 
-          <button style={s.doneBtn} onClick={() => { stopTimer(); navigate('/task-completed'); }} title="Mark task complete">
+          <button style={s.doneBtn} onClick={finishTimerAndNavigate} title="Finish timer and mark task complete">
             ✓
           </button>
         </header>
@@ -190,10 +322,10 @@ export default function Layout({ children }) {
                       key={label}
                       style={{
                         ...s.navItem,
-                        background:  active ? 'rgba(91,200,232,0.16)' : 'transparent',
-                        borderLeft:  active ? `3px solid ${TEAL}` : '3px solid transparent',
-                        color:       active ? TEAL : 'rgba(255,255,255,0.75)',
-                        fontWeight:  active ? 500 : 400,
+                        background: active ? 'rgba(91,200,232,0.16)' : 'transparent',
+                        borderLeft: active ? `3px solid ${TEAL}` : '3px solid transparent',
+                        color:      active ? TEAL : 'rgba(255,255,255,0.75)',
+                        fontWeight: active ? 500 : 400,
                       }}
                       onClick={() => navigate(route)}
                     >
@@ -340,19 +472,14 @@ const s = {
     fontWeight: 700,
     letterSpacing: 1.5,
   },
-  resetBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 28,
-    height: 28,
-    borderRadius: '50%',
-    background: 'rgba(255,255,255,0.07)',
-    border: '1px solid rgba(255,255,255,0.15)',
-    color: 'rgba(255,255,255,0.5)',
-    cursor: 'pointer',
-    flexShrink: 0,
-    transition: 'background 0.15s, color 0.15s',
+  timerError: {
+    maxWidth: 180,
+    color: '#ff8a8a',
+    fontSize: 11,
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   doneBtn: {
     display: 'flex',
