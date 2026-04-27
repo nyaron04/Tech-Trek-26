@@ -201,6 +201,19 @@ export default function Layout({ children }) {
       const body = await res.text();
       throw new Error(body || `Stop failed (${res.status})`);
     }
+    return res.json();
+  };
+
+  const markTaskComplete = async (taskId) => {
+    if (!taskId) return;
+    const res = await authFetch(`${API_BASE}/tasks/${taskId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'completed' }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(body || `Task completion failed (${res.status})`);
+    }
   };
 
   const pauseBackendTimer = async () => {
@@ -269,7 +282,8 @@ export default function Layout({ children }) {
     setTimerBusy(true);
     setTimerError('');
     try {
-      await stopBackendTimer();
+      const stoppedTimer = await stopBackendTimer();
+      await markTaskComplete(stoppedTimer?.taskId);
       stopLocalTicker();
       setRunning(false);
       setTimerId(null);
