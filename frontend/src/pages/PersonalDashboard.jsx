@@ -98,6 +98,7 @@ export default function PersonalDashboard() {
   const [bio, setBio] = useState('');
   const [pageSize, setPageSize] = useState(5);
   const [showSizeMenu, setShowSizeMenu] = useState(false);
+  const [completedTasks, setCompletedTasks] = useState([]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -110,7 +111,15 @@ export default function PersonalDashboard() {
     if (bioKey) setBio(localStorage.getItem(bioKey) ?? '');
   }, [bioKey]);
 
-  const visibleTasks = TASKS.slice(0, pageSize);
+  useEffect(() => {
+    try {
+      setCompletedTasks(JSON.parse(localStorage.getItem('completedTasks') || '[]'));
+    } catch {
+      setCompletedTasks([]);
+    }
+  }, []);
+
+  const visibleTasks = completedTasks.slice(0, pageSize);
 
   return (
     <Layout>
@@ -194,19 +203,23 @@ export default function PersonalDashboard() {
             </div>
 
             {/* Rows */}
-            {visibleTasks.map((task, i) => (
+            {visibleTasks.length === 0 ? (
+              <div style={{ padding: '18px 16px', color: 'rgba(255,255,255,0.35)', fontFamily: GEO, fontSize: 13, textAlign: 'center' }}>
+                No completed tasks yet
+              </div>
+            ) : visibleTasks.map((task, i) => (
               <div key={i} style={s.taskRow}>
-                <span style={{ flex: 3, fontWeight: 500 }}>{task.name}</span>
-                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.date}</span>
-                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.time}</span>
+                <span style={{ flex: 3, fontWeight: 500 }}>{task.taskName}</span>
+                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.dateCompleted}</span>
+                <span style={{ flex: 2, color: 'rgba(255,255,255,0.7)' }}>{task.timeSpent}</span>
                 <span style={{ flex: 2 }}>
                   <span style={{
                     ...s.categoryTag,
-                    background: (CATEGORY_COLOR[task.category] || '#888') + '22',
-                    color: CATEGORY_COLOR[task.category] || 'rgba(255,255,255,0.7)',
-                    border: `1px solid ${(CATEGORY_COLOR[task.category] || '#888')}55`,
+                    background: (CATEGORY_COLOR[task.taskCategory] || '#888') + '22',
+                    color: CATEGORY_COLOR[task.taskCategory] || 'rgba(255,255,255,0.7)',
+                    border: `1px solid ${(CATEGORY_COLOR[task.taskCategory] || '#888')}55`,
                   }}>
-                    {task.category}
+                    {task.taskCategory}
                   </span>
                 </span>
               </div>
